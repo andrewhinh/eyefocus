@@ -9,6 +9,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "pre-commit>=3.8.0",
     "ruff>=0.6.1",
+    "python-fasthtml>=0.4.4",
 ]
 
 [tool.uv]
@@ -23,8 +24,8 @@ lint.ignore = [
     "S101", "S113", "S311", "S105",  # assert removed in bytecode, no request timeout, pRNG not secure, hardcoded password
     "ANN", "ANN002", "ANN003", "ANN101", "ANN102", "ANN202",  # ignore all for now, but always ignore some
     "B008", # ignore function calls in argument defaults
-    "D100", "D102", "D103", "D104", "D105",  # missing docstrings
-    "D200", "D205", "D400", "D401",  # whitespace issues and first line content
+    "D100", "D101", "D102", "D103", "D104", "D105",  # missing docstrings
+    "D200", "D205", "D400", "D401", "D404",  # whitespace issues and first line content
 ]
 # Allow lines to be as long as 120.
 line-length = 120
@@ -48,3 +49,5 @@ mypy-init-return = true
 "*/__init__.py" = ["F401", "I"]
 # ignore data files in data/
 "*/data/*.py" = ["F", "I"]
+# ignore fn redefinitions with fasthtml
+"*/main.py" = ["F811"]

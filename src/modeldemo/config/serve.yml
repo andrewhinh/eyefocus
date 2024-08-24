@@ -1,0 +1,10 @@
+# Model
+model_path: "llama3.1-8b-fineweb10B/00000_10.1997.pt" # local path/path in Modal volume
+is_local: true
+load_in_4bit: true
+load_in_8bit: false
+
+# Sample
+seed: 42
+max_length: 1024
+query: "How old in seconds is the universe?"

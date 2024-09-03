@@ -1,29 +1,32 @@
 [project]
 name = "modeldemo"
-version = "0.1.0"
+version = "0.2.0"
 description = "TBD"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "modal>=0.64.45",
-    "python-dotenv>=1.0.1",
-    "pre-commit>=3.8.0",
-    "ruff>=0.6.1",
-    "python-fasthtml>=0.4.4",
-    "numpy>=2.1.0",
-    "datasets>=2.21.0",
-    "transformers>=4.44.2",
-    "wandb>=0.17.7",
-    "peft>=0.12.0",
-    "bitsandbytes>=0.43.3",
+    "mss>=9.0.2",
+    "pillow>=10.4.0",
     "torch>=2.4.0",
-    "flash-attn>=2.6.3",
-    "scipy>=1.14.1",
-    "hf-transfer>=0.1.8",
+    "typer>=0.12.5",
+    "timm>=1.0.9",
+    "pygame>=2.6.0",
+    "pyaudio>=0.2.14",
+    "notify-py>=0.3.43",
+    "pre-commit>=3.8.0",
 ]
+
+[project.scripts]
+modeldemo = "modeldemo:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.uv]
 dev-dependencies = []
+
+[tool.uv.sources]
 
 [tool.ruff]
 # Only check selected error codes.
@@ -61,3 +64,5 @@ mypy-init-return = true
 "*/data/*.py" = ["F", "I"]
 # ignore fn redefinitions with fasthtml
 "*/main.py" = ["F811"]
+# ignore shell usage
+"*/modeldemo/__init__.py" = ["S605", "S607"]

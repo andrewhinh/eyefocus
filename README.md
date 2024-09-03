@@ -29,14 +29,31 @@ modal setup
 
 ```bash
 .
+├── r&d               # config, frontend, model FT.
 ├── src
 ├──── modeldemo
-├──────── config      # configuration files.
-├──────── frontend    # frontend code.
-├──────── training    # etl, sweep, train, eval, and serve code.
+├──────── __init__.py # main code.
 ```
 
 ## Development
+
+### CLI
+
+```bash
+uv run modeldemo
+uvx --from build pyproject-build --installer uv
+TWINE_USERNAME=<usr> TWINE_PASSWORD=<pwd> uvx twine upload dist/*
+uv run --with modeldemo --no-project -- modeldemo -vv
+```
+
+```bash
+sudo apt install -y notification-daemon
+sudo nano /usr/share/dbus-1/services/org.freedesktop.Notifications.service
+[D-BUS Service]
+Name=org.freedesktop.Notifications
+Exec=/usr/lib/notification-daemon/notification-daemon
+```
+
 
 ### Frontend
 

@@ -16,18 +16,21 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 import typer
 from typing_extensions import Annotated
 import platform
-from transformers.modeling_outputs import CausalLMOutputWithPast
 
+
+# Typer CLI
 app = typer.Typer(
     rich_markup_mode="rich",
 )
 state = {"verbose": False, "super_verbose": False}
 
-MODEL_PATH = "OpenGVLab/InternVL2-2B"
+
+# Model config
+MODEL_PATH = "OpenGVLab/InternVL2-1B"
 TORCH_DTYPE = torch.bfloat16
 INPUT_IMG_SIZE = 448
 MAX_TILES = 12
-MAX_NEW_TOKENS = 1024
+MAX_NEW_TOKENS = 256
 DO_SAMPLE = True
 PROMPT = """
 <image>
@@ -73,8 +76,9 @@ Example responses:
 DEVICE = "cpu"
 if torch.cuda.is_available():
     DEVICE = "cuda"
-elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    DEVICE = "mps"
+# Not supported by InternVL2
+# elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+#     DEVICE = "mps"
 WORLD_SIZE = torch.cuda.device_count() if torch.cuda.is_available() else 0
 
 
@@ -215,8 +219,8 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
 
         return device_map
 
-    device_map = None
     # ADDED: only use device_map if GPU is available
+    device_map = None
     if WORLD_SIZE > 0:
         device_map = split_model(MODEL_PATH.split("/")[-1])
 
@@ -228,8 +232,9 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
         trust_remote_code=True,
         device_map=device_map,
     ).eval()
+    model = torch.compile(model)
 
-    # ADDED: for CPU/MPS compatibility
+    # ADDED: for non-gpu compatibility
     if WORLD_SIZE == 0:
         model = model.to(DEVICE)
         model = ExtraCompatibleInternVLChatModel(model)

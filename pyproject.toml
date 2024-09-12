@@ -1,6 +1,6 @@
 [project]
 name = "modeldemo"
-version = "0.5.0-1"
+version = "0.7.0-1"
 description = "TBD"
 readme = "README.md"
 requires-python = ">=3.12"

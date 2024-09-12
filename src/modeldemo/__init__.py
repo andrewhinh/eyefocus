@@ -2,7 +2,10 @@ import os
 import mss
 import json
 from PIL import Image
+import traceback
 import torch
+from fastchat.conversation import get_conv_template
+from transformers import PreTrainedModel
 import subprocess
 from transformers import AutoTokenizer, AutoModel
 import math
@@ -13,6 +16,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 import typer
 from typing_extensions import Annotated
 import platform
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
 app = typer.Typer(
     rich_markup_mode="rich",
@@ -71,7 +75,7 @@ if torch.cuda.is_available():
     DEVICE = "cuda"
 elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     DEVICE = "mps"
-WORLD_SIZE = torch.cuda.device_count()
+WORLD_SIZE = torch.cuda.device_count() if torch.cuda.is_available() else 0
 
 
 # Helper fns
@@ -102,6 +106,79 @@ def capture_screenshot() -> Image:
 
 
 ## Fns from: https://huggingface.co/OpenGVLab/InternVL2-1B
+class ExtraCompatibleInternVLChatModel(
+    PreTrainedModel
+):  # ADDED: needed because original model.chat() contains explicit .cuda() calls
+    def __init__(self, model):
+        super().__init__(model.config)
+        self.model = model
+
+    def chat(
+        self,
+        tokenizer,
+        pixel_values,
+        question,
+        generation_config,
+        history=None,
+        return_history=False,
+        num_patches_list=None,
+        IMG_START_TOKEN="<img>",  # noqa: S107
+        IMG_END_TOKEN="</img>",  # noqa: S107
+        IMG_CONTEXT_TOKEN="<IMG_CONTEXT>",  # noqa: S107
+        verbose=False,
+    ):
+        if history is None and pixel_values is not None and "<image>" not in question:
+            question = "<image>\n" + question
+
+        if num_patches_list is None:
+            num_patches_list = [pixel_values.shape[0]] if pixel_values is not None else []
+        assert pixel_values is None or len(pixel_values) == sum(num_patches_list)
+
+        img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
+        self.model.img_context_token_id = img_context_token_id  # ADDED: for self.model.generate
+
+        conv = get_conv_template("internlm-chat")  # ADDED: to resolve KeyError: 'internlm2-chat'
+        conv.system_message = self.model.system_message
+        eos_token_id = tokenizer.convert_tokens_to_ids(conv.sep)
+
+        history = [] if history is None else history
+        for old_question, old_answer in history:
+            conv.append_message(conv.roles[0], old_question)
+            conv.append_message(conv.roles[1], old_answer)
+        conv.append_message(conv.roles[0], question)
+        conv.append_message(conv.roles[1], None)
+        query = conv.get_prompt()
+
+        if verbose and pixel_values is not None:
+            image_bs = pixel_values.shape[0]
+            print(f"dynamic ViT batch size: {image_bs}")
+
+        for num_patches in num_patches_list:
+            image_tokens = (
+                IMG_START_TOKEN + IMG_CONTEXT_TOKEN * self.model.num_image_token * num_patches + IMG_END_TOKEN
+            )
+            query = query.replace("<image>", image_tokens, 1)
+
+        model_inputs = tokenizer(query, return_tensors="pt")
+        input_ids = model_inputs["input_ids"].to(DEVICE)  # ADDED
+        attention_mask = model_inputs["attention_mask"].to(DEVICE)  # ADDED
+        generation_config["eos_token_id"] = eos_token_id
+        generation_output = self.model.generate(
+            pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask, **generation_config
+        )
+        response = tokenizer.batch_decode(generation_output, skip_special_tokens=True)[0]
+        response = response.split(conv.sep)[0].strip()
+        history.append((question, response))
+        if return_history:
+            return response, history
+        else:
+            query_to_print = query.replace(IMG_CONTEXT_TOKEN, "")
+            query_to_print = query_to_print.replace(f"{IMG_START_TOKEN}{IMG_END_TOKEN}", "<image>")
+            if verbose:
+                print(query_to_print, response)
+            return response
+
+
 def download_model() -> tuple[AutoTokenizer, AutoModel]:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True, use_fast=False)
 
@@ -138,10 +215,11 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
 
         return device_map
 
+    device_map = None
+    # ADDED: only use device_map if GPU is available
     if WORLD_SIZE > 0:
         device_map = split_model(MODEL_PATH.split("/")[-1])
-    else:
-        device_map = None
+
     model = AutoModel.from_pretrained(
         MODEL_PATH,
         torch_dtype=TORCH_DTYPE,
@@ -150,6 +228,11 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
         trust_remote_code=True,
         device_map=device_map,
     ).eval()
+
+    # ADDED: for CPU/MPS compatibility
+    if WORLD_SIZE == 0:
+        model = model.to(DEVICE)
+        model = ExtraCompatibleInternVLChatModel(model)
 
     return tokenizer, model
 
@@ -236,7 +319,7 @@ def transform_img(image: Image) -> torch.Tensor:
 
 
 def predict(img: Image, tokenizer: AutoTokenizer, model: AutoModel) -> str:
-    pixel_values = transform_img(img).to(TORCH_DTYPE).cuda()
+    pixel_values = transform_img(img).to(TORCH_DTYPE).to(DEVICE)
     generation_config = {"max_new_tokens": MAX_NEW_TOKENS, "do_sample": DO_SAMPLE}
     response = model.chat(tokenizer, pixel_values, PROMPT, generation_config)
     return response
@@ -299,6 +382,7 @@ def main(verbose: Annotated[int, typer.Option("--verbose", "-v", count=True)] = 
     except Exception as e:
         if state["verbose"]:
             print(f"Failed with error: {e}")
+            print(traceback.format_exc())
             print("\n\nExiting...")
         else:
             clear_terminal()

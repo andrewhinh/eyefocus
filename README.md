@@ -1,5 +1,7 @@
 # modeldemo
 
+**Stay focused!**
+
 Built with:
 
 - uv for project management.
@@ -15,8 +17,6 @@ Set up the environment:
 ```bash
 uv sync --all-extras --dev
 uv run pre-commit install
-export PYTHONPATH=.
-echo "export PYTHONPATH=.:$PYTHONPATH" >> ~/.bashrc
 ```
 
 Optionally, set up Modal:
@@ -29,31 +29,39 @@ modal setup
 
 ```bash
 .
-├── r&d               # config, frontend, model FT.
+├── r&d              # config, frontend, model FT.
 ├── src
 ├──── modeldemo
-├──────── __init__.py # main code.
+├────── __init__.py  # main code.
 ```
 
 ## Development
 
 ### CLI
 
+Test:
+
 ```bash
-uv run modeldemo
+uv run modeldemo -vv
+```
+
+Build the package:
+
+```bash
 uvx --from build pyproject-build --installer uv
-TWINE_USERNAME=<usr> TWINE_PASSWORD=<pwd> uvx twine upload dist/*
+```
+
+Upload the package:
+
+```bash
+uvx twine upload dist/*
+```
+
+Test the uploaded package:
+
+```bash
 uv run --with modeldemo --no-project -- modeldemo -vv
 ```
-
-```bash
-sudo apt install -y notification-daemon
-sudo nano /usr/share/dbus-1/services/org.freedesktop.Notifications.service
-[D-BUS Service]
-Name=org.freedesktop.Notifications
-Exec=/usr/lib/notification-daemon/notification-daemon
-```
-
 
 ### Frontend
 

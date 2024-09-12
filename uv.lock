@@ -221,7 +221,7 @@ wheels = [
 
 [[package]]
 name = "modeldemo"
-version = "0.1.0"
+version = "0.2.0.post1"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate", marker = "python_full_version < '4'" },

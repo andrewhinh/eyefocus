@@ -19,7 +19,7 @@ app = typer.Typer(
 )
 state = {"verbose": False, "super_verbose": False}
 
-MODEL_PATH = "OpenGVLab/InternVL2-1B"
+MODEL_PATH = "OpenGVLab/InternVL2-2B"
 TORCH_DTYPE = torch.bfloat16
 INPUT_IMG_SIZE = 448
 MAX_TILES = 12
@@ -71,6 +71,7 @@ if torch.cuda.is_available():
     DEVICE = "cuda"
 elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     DEVICE = "mps"
+WORLD_SIZE = torch.cuda.device_count()
 
 
 # Helper fns
@@ -106,9 +107,8 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
 
     torch.set_float32_matmul_precision("high")
 
-    def split_model(model_name):
+    def split_model(model_name: str):
         device_map = {}
-        world_size = torch.cuda.device_count()
         num_layers = {
             "InternVL2-1B": 24,
             "InternVL2-2B": 24,
@@ -119,8 +119,8 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
             "InternVL2-Llama3-76B": 80,
         }[model_name]
         # Since the first GPU will be used for ViT, treat it as half a GPU.
-        num_layers_per_gpu = math.ceil(num_layers / (world_size - 0.5))
-        num_layers_per_gpu = [num_layers_per_gpu] * world_size
+        num_layers_per_gpu = math.ceil(num_layers / (WORLD_SIZE - 0.5))
+        num_layers_per_gpu = [num_layers_per_gpu] * WORLD_SIZE
         num_layers_per_gpu[0] = math.ceil(num_layers_per_gpu[0] * 0.5)
         layer_cnt = 0
         for i, num_layer in enumerate(num_layers_per_gpu):
@@ -138,7 +138,10 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
 
         return device_map
 
-    device_map = split_model(MODEL_PATH.split("/")[-1])
+    if WORLD_SIZE > 0:
+        device_map = split_model(MODEL_PATH.split("/")[-1])
+    else:
+        device_map = None
     model = AutoModel.from_pretrained(
         MODEL_PATH,
         torch_dtype=TORCH_DTYPE,
@@ -260,8 +263,13 @@ def run() -> None:
         if state["super_verbose"]:
             print(f"Prediction: {pred}")
 
-        format_pred = pred.replace("```json", "").replace("```", "")
-        format_pred = json.loads(format_pred)
+        try:
+            format_pred = pred.replace("```json", "").replace("```", "")
+            format_pred = json.loads(format_pred)
+        except Exception as e:
+            if state["verbose"]:
+                print(f"Failed to parse prediction: {e}")
+            continue
         is_distracted, message = format_pred["is_distracted"], format_pred["message"]
         if is_distracted:
             if not notif_active:

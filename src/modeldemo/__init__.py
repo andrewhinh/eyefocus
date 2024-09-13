@@ -1,14 +1,16 @@
-import os
+from notifypy import Notify
 import mss
 import json
+import time
 from PIL import Image
 import traceback
+from hqq.utils.patching import prepare_for_inference
+
 import torch
 from fastchat.conversation import get_conv_template
 from transformers import PreTrainedModel
 import transformers
-import subprocess
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, HqqConfig
 import math
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
@@ -16,7 +18,7 @@ from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 import typer
 from typing_extensions import Annotated
-import platform
+from pathlib import Path
 
 
 # Typer CLI
@@ -27,15 +29,30 @@ state = {"verbose": False, "super_verbose": False}
 
 
 # Model config
-MODEL_PATH = "OpenGVLab/InternVL2-1B"
+MODEL_PATH = "OpenGVLab/InternVL2-2B"
 TORCH_DTYPE = torch.bfloat16
+
+## HQQ config
+N_BITS = 1
+GROUP_SIZE = 64
+OFFLOAD_META = False
+AXIS = 0
+
+DEVICE = "cpu"
+if torch.cuda.is_available():
+    DEVICE = "cuda"
+# Not supported by InternVL2
+# elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+#     DEVICE = "mps"
+WORLD_SIZE = torch.cuda.device_count() if torch.cuda.is_available() else 0
+
 INPUT_IMG_SIZE = 448
 MAX_TILES = 12
 MAX_NEW_TOKENS = 128
 DO_SAMPLE = True
 PROMPT = """
 <image>
-Task: Analyze the given computer screenshot to determine if it shows evidence of focused, productive activity or potentially distracting activity, then provide an appropriate response.
+Task: Analyze the given computer screenshot to determine if it shows evidence of focused, productive activity or potentially distracting activity, then provide an appropriate titled response.
 
 Instructions:
 1. Examine the screenshot carefully.
@@ -60,41 +77,31 @@ Instructions:
 Response Format:
 Return a single JSON object with the following fields:
 - is_distracted: boolean value (true if the screenshot primarily shows evidence of distraction, false if it shows focused activity)
-- message: string containing a brief, snarky message to encourage the user to refocus (only if is_distracted is true, otherwise an empty string)
+- title: string 1-liner snarky title to catch the user's attention (only if is_distracted is true, otherwise an empty string)
+- message: string 1-liner snarky message to encourage the user to refocus (only if is_distracted is true, otherwise an empty string)
 
 Example responses:
-{"is_distracted": false, "message": ""}
-{"is_distracted": true, "message": "I see you're working hard... on procrastination. Your to-do list called, it's feeling neglected."}
+{"is_distracted": false, "title": "", "message": ""}
+{"is_distracted": true, "title": "Uh-oh!", "message": "Looks like someone's getting a little distracted..."}
 
 Important:
-- Only write a message if is_distracted is true.
+- Only write a title and message if is_distracted is true.
 - Provide only one JSON object as your complete response.
 - Ensure the JSON is valid and properly formatted.
 - Do not include any explanations or additional text outside the JSON object.
 - Use true/false for the boolean value, not 1/0.
 """
 
-DEVICE = "cpu"
-if torch.cuda.is_available():
-    DEVICE = "cuda"
-# Not supported by InternVL2
-# elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-#     DEVICE = "mps"
-WORLD_SIZE = torch.cuda.device_count() if torch.cuda.is_available() else 0
+# Notifypy
+NOTIFICATION_INTERVAL = 3  # seconds
+notification = Notify(
+    default_application_name="Modeldemo",
+    default_notification_icon=str(Path(__file__).parent / "icon.png"),
+    default_notification_audio=str(Path(__file__).parent / "sound.wav"),
+)
 
 
 # Helper fns
-def send_notification(message: str) -> None:
-    system = platform.system()
-    try:
-        if system == "Darwin":  # macOS
-            subprocess.run(["osascript", "-e", f'display notification "{message}"'], check=True)  # noqa: S603
-        else:
-            print(f"Unsupported operating system: {system}")
-    except subprocess.CalledProcessError:
-        print(f"Failed to send notification on {system}")
-
-
 def capture_screenshot() -> Image:
     with mss.mss() as sct:
         # Capture the entire screen
@@ -218,6 +225,13 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
     if WORLD_SIZE > 0:
         device_map = split_model(MODEL_PATH.split("/")[-1])
 
+    # ADDED: HQQ quantization (all linear layers will use the same quantization config)
+    quant_config = HqqConfig(
+        n_bits=N_BITS,
+        group_size=GROUP_SIZE,
+        axis=AXIS,
+    )
+
     model = AutoModel.from_pretrained(
         MODEL_PATH,
         torch_dtype=TORCH_DTYPE,
@@ -225,8 +239,12 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
         # use_flash_attn=True,
         trust_remote_code=True,
         device_map=device_map,
+        quantization_config=quant_config,
     ).eval()
+
+    # ADDED: torch.compile + HQQ PyTorch external backend
     model = torch.compile(model)
+    prepare_for_inference(model)
 
     # ADDED: for non-gpu compatibility
     if WORLD_SIZE == 0:
@@ -338,7 +356,6 @@ def run() -> None:
     else:
         tokenizer, model = download_model()
 
-    notif_active = False
     while True:
         img = capture_screenshot()
         pred = predict(img, tokenizer, model)
@@ -346,8 +363,9 @@ def run() -> None:
             print(f"Prediction: {pred}")
 
         try:
-            format_pred = json.loads(pred)
-            is_distracted, message = format_pred["is_distracted"], format_pred["message"]
+            format_pred = pred.replace("```json", "").replace("```", "").strip()
+            format_pred = json.loads(format_pred)
+            is_distracted, title, message = format_pred["is_distracted"], format_pred["title"], format_pred["message"]
             is_distracted = bool(is_distracted)
         except Exception as e:
             if state["verbose"]:
@@ -355,13 +373,12 @@ def run() -> None:
             continue
 
         if is_distracted:
-            if not notif_active:
-                if state["verbose"]:
-                    print(f"[bold red]{message}[/bold red]")
-                send_notification(message)
-                notif_active = True
-        elif notif_active:
-            notif_active = False
+            if state["verbose"]:
+                print(f"[bold red]{message}[/bold red]")
+            notification.title = title
+            notification.message = message
+            notification.send(block=False)
+            time.sleep(NOTIFICATION_INTERVAL)
 
 
 @app.command(

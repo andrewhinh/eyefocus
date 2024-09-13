@@ -29,7 +29,15 @@ USER_PROMPT = "<|user|>\n"
 ASSISTANT_PROMPT = "<|assistant|>\n"
 PROMPT_SUFFIX = "<|end|>\n"
 
-## BitsAndBytes quantization
+## gpu extras
+use_flash_attn = False
+try:
+    import flash_attn
+
+    use_flash_attn = True
+except ImportError:
+    pass
+
 quant_config = None
 LOAD_IN_8BIT = False
 LOAD_IN_4BIT = True
@@ -46,12 +54,11 @@ try:
 except ImportError:
     pass
 
-
 DEVICE = "cpu"
 if torch.cuda.is_available():
     DEVICE = "cuda"
-elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    DEVICE = "mps"
+# elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+#     DEVICE = "mps"
 WORLD_SIZE = torch.cuda.device_count() if torch.cuda.is_available() else 0
 
 NUM_CROPS = 16
@@ -127,28 +134,16 @@ def download_model() -> tuple[AutoProcessor, TextIteratorStreamer, AutoModelForC
     )
 
     torch.set_float32_matmul_precision("high")
-    try:
-        model = AutoModelForCausalLM.from_pretrained(
-            MODEL_PATH,
-            torch_dtype=TORCH_DTYPE,
-            low_cpu_mem_usage=True,
-            _attn_implementation="flash_attention_2",
-            trust_remote_code=True,
-            quantization_config=quant_config,
-            device_map=DEVICE,
-        ).eval()
-    except Exception:
-        if state["verbose"]:
-            print("Flash Attention not available, using eager attention.")
-        model = AutoModelForCausalLM.from_pretrained(
-            MODEL_PATH,
-            torch_dtype=TORCH_DTYPE,
-            low_cpu_mem_usage=True,
-            _attn_implementation="eager",
-            trust_remote_code=True,
-            quantization_config=quant_config,
-            device_map=DEVICE,
-        ).eval()
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_PATH,
+        torch_dtype=TORCH_DTYPE,
+        low_cpu_mem_usage=True,
+        _attn_implementation="flash_attention_2" if use_flash_attn else "eager",
+        trust_remote_code=True,
+        quantization_config=quant_config,
+    ).eval()
+    if not quant_config:
+        model = model.to(DEVICE)
     model = torch.compile(model)
 
     return processor, streamer, model

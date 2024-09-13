@@ -4,13 +4,12 @@ import json
 import time
 from PIL import Image
 import traceback
-from hqq.utils.patching import prepare_for_inference
 
 import torch
 from fastchat.conversation import get_conv_template
 from transformers import PreTrainedModel
 import transformers
-from transformers import AutoTokenizer, AutoModel, HqqConfig
+from transformers import AutoTokenizer, AutoModel
 import math
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
@@ -31,12 +30,6 @@ state = {"verbose": False, "super_verbose": False}
 # Model config
 MODEL_PATH = "OpenGVLab/InternVL2-2B"
 TORCH_DTYPE = torch.bfloat16
-
-## HQQ config
-N_BITS = 1
-GROUP_SIZE = 64
-OFFLOAD_META = False
-AXIS = 0
 
 DEVICE = "cpu"
 if torch.cuda.is_available():
@@ -225,13 +218,6 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
     if WORLD_SIZE > 0:
         device_map = split_model(MODEL_PATH.split("/")[-1])
 
-    # ADDED: HQQ quantization (all linear layers will use the same quantization config)
-    quant_config = HqqConfig(
-        n_bits=N_BITS,
-        group_size=GROUP_SIZE,
-        axis=AXIS,
-    )
-
     model = AutoModel.from_pretrained(
         MODEL_PATH,
         torch_dtype=TORCH_DTYPE,
@@ -239,12 +225,10 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
         # use_flash_attn=True,
         trust_remote_code=True,
         device_map=device_map,
-        quantization_config=quant_config,
     ).eval()
 
-    # ADDED: torch.compile + HQQ PyTorch external backend
+    # ADDED: torch.compile
     model = torch.compile(model)
-    prepare_for_inference(model)
 
     # ADDED: for non-gpu compatibility
     if WORLD_SIZE == 0:

@@ -142,21 +142,6 @@ wheels = [
 ]
 
 [[package]]
-name = "hqq"
-version = "0.2.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "accelerate", marker = "python_full_version < '4'" },
-    { name = "einops", marker = "python_full_version < '4'" },
-    { name = "huggingface-hub", marker = "python_full_version < '4'" },
-    { name = "numpy", marker = "python_full_version < '4'" },
-    { name = "termcolor", marker = "python_full_version < '4'" },
-    { name = "tqdm", marker = "python_full_version < '4'" },
-    { name = "transformers", marker = "python_full_version < '4'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/81/043c06b1e8f0b2c87200ab32ee846d602143ad55c139b198e52fc43e2795/hqq-0.2.2.tar.gz", hash = "sha256:d78ee07470ae93c261ffae95ace6da1ac2d1e6864f2d0127916bbf4ee7b41292", size = 55499 }
-
-[[package]]
 name = "huggingface-hub"
 version = "0.24.6"
 source = { registry = "https://pypi.org/simple" }
@@ -267,13 +252,12 @@ wheels = [
 
 [[package]]
 name = "modeldemo"
-version = "0.8.0.post1"
+version = "0.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate", marker = "python_full_version < '4'" },
     { name = "einops", marker = "python_full_version < '4'" },
     { name = "fastchat", marker = "python_full_version < '4'" },
-    { name = "hqq", marker = "python_full_version < '4'" },
     { name = "mss", marker = "python_full_version < '4'" },
     { name = "notify-py", marker = "python_full_version < '4'" },
     { name = "opencv-python", marker = "python_full_version < '4'" },
@@ -292,7 +276,6 @@ requires-dist = [
     { name = "accelerate", specifier = ">=0.34.2" },
     { name = "einops", specifier = ">=0.8.0" },
     { name = "fastchat", specifier = ">=0.1.0" },
-    { name = "hqq", specifier = ">=0.2.2" },
     { name = "mss", specifier = ">=9.0.2" },
     { name = "notify-py", specifier = ">=0.3.43" },
     { name = "opencv-python", specifier = ">=4.10.0.84" },
@@ -753,15 +736,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/94/15/4a041424c7187f41cce678f5a02189b244e9aac61a18b45cd415a3a470f3/sympy-1.13.2.tar.gz", hash = "sha256:401449d84d07be9d0c7a46a64bd54fe097667d5e7181bfe67ec777be9e01cb13", size = 7532926 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/f9/6845bf8fca0eaf847da21c5d5bc6cd92797364662824a11d3f836423a1a5/sympy-1.13.2-py3-none-any.whl", hash = "sha256:c51d75517712f1aed280d4ce58506a4a88d635d6b5dd48b39102a7ae1f3fcfe9", size = 6189289 },
-]
-
-[[package]]
-name = "termcolor"
-version = "2.4.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/10/56/d7d66a84f96d804155f6ff2873d065368b25a07222a6fd51c4f24ef6d764/termcolor-2.4.0.tar.gz", hash = "sha256:aab9e56047c8ac41ed798fa36d892a37aca6b3e9159f3e0c24bc64a9b3ac7b7a", size = 12664 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/5f/8c716e47b3a50cbd7c146f45881e11d9414def768b7cd9c5e6650ec2a80a/termcolor-2.4.0-py3-none-any.whl", hash = "sha256:9297c0df9c99445c2412e832e882a7884038a25617c60cea2ad69488d4040d63", size = 7719 },
 ]
 
 [[package]]

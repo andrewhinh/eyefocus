@@ -6,6 +6,7 @@ import traceback
 import torch
 from fastchat.conversation import get_conv_template
 from transformers import PreTrainedModel
+import transformers
 import subprocess
 from transformers import AutoTokenizer, AutoModel
 import math
@@ -30,47 +31,47 @@ MODEL_PATH = "OpenGVLab/InternVL2-1B"
 TORCH_DTYPE = torch.bfloat16
 INPUT_IMG_SIZE = 448
 MAX_TILES = 12
-MAX_NEW_TOKENS = 256
+MAX_NEW_TOKENS = 128
 DO_SAMPLE = True
 PROMPT = """
 <image>
-Task 1: Analyze the given computer screenshot and determine if it shows evidence of focused, productive activity or potentially distracting activity.
+Task: Analyze the given computer screenshot to determine if it shows evidence of focused, productive activity or potentially distracting activity, then provide an appropriate response.
+
 Instructions:
 1. Examine the screenshot carefully.
 2. Look for indicators of focused, productive activities such as:
-   - Code editors or integrated development environments (IDEs) in use
+   - Code editors or IDEs in use
    - Document editing software with substantial text visible
    - Spreadsheet applications with data or formulas
    - Research papers or educational materials being read
    - Professional design or modeling software in use
    - Terminal/command prompt windows with active commands
 3. Identify potentially distracting activities, including:
-   - Social media websites (e.g., Reddit, Twitter, Facebook, Instagram)
-   - Video streaming platforms (e.g., YouTube, Twitch, Netflix)
-   - News websites or apps not related to work/study
+   - Social media websites
+   - Video streaming platforms
+   - Unrelated news websites or apps
    - Online shopping sites
    - Music or video players
-   - Messaging or communication apps
+   - Messaging apps
    - Games or gaming platforms
 4. If multiple windows/tabs are visible, prioritize the active or most prominent one.
 5. Consider the context: a coding-related YouTube video might be considered focused activity for a programmer.
-Task 2: Write a message to encourage the distracted user.
-Instructions:
-1. If the user is distracted, write a brief message to encourage them to refocus on their work by being snarky about it.
-2. Otherwise, write an empty message.
+
 Response Format:
-1. Return a json object with the following fields:
-    - is_distracted: 0 if the screenshot primarily shows evidence of focused, productive activity, 1 otherwise
-    - message: A brief message to encourage the user to refocus on their work (if applicable)
+Return a single JSON object with the following fields:
+- is_distracted: boolean value (true if the screenshot primarily shows evidence of distraction, false if it shows focused activity)
+- message: string containing a brief, snarky message to encourage the user to refocus (only if is_distracted is true, otherwise an empty string)
+
 Example responses:
-{{
-    "is_distracted": 0,
-    "message": ""
-}}
-{{
-    "is_distracted": 1,
-    "message": "I see that you're working hard... to distract yourself. :wink:"
-}}
+{"is_distracted": false, "message": ""}
+{"is_distracted": true, "message": "I see you're working hard... on procrastination. Your to-do list called, it's feeling neglected."}
+
+Important:
+- Only write a message if is_distracted is true.
+- Provide only one JSON object as your complete response.
+- Ensure the JSON is valid and properly formatted.
+- Do not include any explanations or additional text outside the JSON object.
+- Use true/false for the boolean value, not 1/0.
 """
 
 DEVICE = "cpu"
@@ -92,13 +93,6 @@ def send_notification(message: str) -> None:
             print(f"Unsupported operating system: {system}")
     except subprocess.CalledProcessError:
         print(f"Failed to send notification on {system}")
-
-
-def clear_terminal() -> None:
-    if platform.system() == "Windows":
-        _ = os.system("cls")
-    else:  # For macOS and Linux
-        _ = os.system("clear")
 
 
 def capture_screenshot() -> Image:
@@ -352,13 +346,14 @@ def run() -> None:
             print(f"Prediction: {pred}")
 
         try:
-            format_pred = pred.replace("```json", "").replace("```", "")
-            format_pred = json.loads(format_pred)
+            format_pred = json.loads(pred)
+            is_distracted, message = format_pred["is_distracted"], format_pred["message"]
+            is_distracted = bool(is_distracted)
         except Exception as e:
             if state["verbose"]:
                 print(f"Failed to parse prediction: {e}")
             continue
-        is_distracted, message = format_pred["is_distracted"], format_pred["message"]
+
         if is_distracted:
             if not notif_active:
                 if state["verbose"]:
@@ -378,16 +373,18 @@ def main(verbose: Annotated[int, typer.Option("--verbose", "-v", count=True)] = 
     try:
         state["verbose"] = verbose > 0
         state["super_verbose"] = verbose > 1
+        if state["super_verbose"]:
+            transformers.logging.set_verbosity_info()
+        elif state["verbose"]:
+            transformers.logging.set_verbosity_warning()
+        else:
+            transformers.logging.set_verbosity_error()
         run()
     except KeyboardInterrupt:
         if state["verbose"]:
             print("\n\nExiting...")
-        else:
-            clear_terminal()
     except Exception as e:
         if state["verbose"]:
             print(f"Failed with error: {e}")
             print(traceback.format_exc())
             print("\n\nExiting...")
-        else:
-            clear_terminal()

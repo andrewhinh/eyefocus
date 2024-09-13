@@ -179,7 +179,7 @@ class ExtraCompatibleInternVLChatModel(
 
 def download_model() -> tuple[TextIteratorStreamer, AutoTokenizer, AutoModel]:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True, use_fast=False)
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True, timeout=10)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 
     torch.set_float32_matmul_precision("high")
 

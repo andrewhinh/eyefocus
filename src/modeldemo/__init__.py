@@ -4,12 +4,11 @@ import json
 import time
 from PIL import Image
 import traceback
-
 import torch
 from fastchat.conversation import get_conv_template
-from transformers import PreTrainedModel
 import transformers
-from transformers import AutoTokenizer, AutoModel
+from threading import Thread
+from transformers import AutoTokenizer, AutoModel, TextIteratorStreamer, PreTrainedModel
 import math
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
@@ -86,9 +85,10 @@ Important:
 """
 
 # Notifypy
-NOTIFICATION_INTERVAL = 3  # seconds
+NOTIFICATION_INTERVAL = 8  # seconds
 notification = Notify(
     default_application_name="Modeldemo",
+    default_notification_urgency="critical",
     default_notification_icon=str(Path(__file__).parent / "icon.png"),
     default_notification_audio=str(Path(__file__).parent / "sound.wav"),
 )
@@ -103,7 +103,7 @@ def capture_screenshot() -> Image:
         return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
 
 
-## Fns from: https://huggingface.co/OpenGVLab/InternVL2-1B
+## Fns from: https://huggingface.co/OpenGVLab/InternVL2
 class ExtraCompatibleInternVLChatModel(
     PreTrainedModel
 ):  # ADDED: needed because original model.chat() contains explicit .cuda() calls
@@ -177,8 +177,9 @@ class ExtraCompatibleInternVLChatModel(
             return response
 
 
-def download_model() -> tuple[AutoTokenizer, AutoModel]:
+def download_model() -> tuple[TextIteratorStreamer, AutoTokenizer, AutoModel]:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True, use_fast=False)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True, timeout=10)
 
     torch.set_float32_matmul_precision("high")
 
@@ -235,7 +236,7 @@ def download_model() -> tuple[AutoTokenizer, AutoModel]:
         model = model.to(DEVICE)
         model = ExtraCompatibleInternVLChatModel(model)
 
-    return tokenizer, model
+    return streamer, tokenizer, model
 
 
 def transform_img(image: Image) -> torch.Tensor:
@@ -319,11 +320,33 @@ def transform_img(image: Image) -> torch.Tensor:
     return pixel_values
 
 
-def predict(img: Image, tokenizer: AutoTokenizer, model: AutoModel) -> str:
+def predict(img: Image, streamer: TextIteratorStreamer, tokenizer: AutoTokenizer, model: AutoModel) -> str:
     pixel_values = transform_img(img).to(TORCH_DTYPE).to(DEVICE)
-    generation_config = {"max_new_tokens": MAX_NEW_TOKENS, "do_sample": DO_SAMPLE}
-    response = model.chat(tokenizer, pixel_values, PROMPT, generation_config)
-    return response
+    generation_config = {"max_new_tokens": MAX_NEW_TOKENS, "do_sample": DO_SAMPLE, "streamer": streamer}
+
+    thread = Thread(
+        target=model.chat,
+        kwargs={
+            "tokenizer": tokenizer,
+            "pixel_values": pixel_values,
+            "question": PROMPT,
+            "history": None,
+            "return_history": False,
+            "generation_config": generation_config,
+        },
+    )
+    thread.start()
+
+    generated_text = ""
+    for new_text in streamer:
+        if new_text == model.conv_template.sep:
+            break
+        generated_text += new_text
+        if state["super_verbose"]:
+            print(new_text, end="", flush=True)
+    if state["super_verbose"]:
+        print()
+    return generated_text
 
 
 # Typer CLI
@@ -335,16 +358,14 @@ def run() -> None:
             SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
         ) as progress:
             progress.add_task("Downloading model...", total=None)
-            tokenizer, model = download_model()
+            streamer, tokenizer, model = download_model()
         print("Model downloaded!")
     else:
-        tokenizer, model = download_model()
+        streamer, tokenizer, model = download_model()
 
     while True:
         img = capture_screenshot()
-        pred = predict(img, tokenizer, model)
-        if state["super_verbose"]:
-            print(f"Prediction: {pred}")
+        pred = predict(img, streamer, tokenizer, model)
 
         try:
             format_pred = pred.replace("```json", "").replace("```", "").strip()
@@ -358,10 +379,11 @@ def run() -> None:
 
         if is_distracted:
             if state["verbose"]:
-                print(f"[bold red]{message}[/bold red]")
+                print(f"[bold red] {title}\n{message} [/bold red]")
             notification.title = title
             notification.message = message
             notification.send(block=False)
+
             time.sleep(NOTIFICATION_INTERVAL)
 
 

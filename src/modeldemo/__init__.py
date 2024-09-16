@@ -14,7 +14,7 @@ import typer
 from typing_extensions import Annotated
 from pathlib import Path
 from llama_cpp import Llama
-from llama_cpp.llama_chat_format import MiniCPMv26ChatHandler
+from llama_cpp.llama_chat_format import MoondreamChatHandler
 
 
 # Typer CLI
@@ -25,9 +25,9 @@ state = {"verbose": False, "super_verbose": False}
 
 
 # Model config
-MODEL_PATH = "openbmb/MiniCPM-V-2_6-gguf"
-MM_PROJ_FILEPATH = "mmproj-model-f16.gguf"
-GGML_FILEPATH = "ggml-model-Q4_K_M.gguf"
+MODEL_PATH = "vikhyatk/moondream2"
+MM_PROJ_FILEPATH = "*mmproj*"
+GGML_FILEPATH = "*text-model*"
 MAX_LEN = 4096
 
 DEVICE = "cpu"
@@ -98,7 +98,7 @@ def pil_to_base64(img: Image) -> str:
 
 ## Reference: https://llama-cpp-python.readthedocs.io/en/stable/#multi-modal-models
 def download_model() -> Llama:
-    chat_handler = MiniCPMv26ChatHandler.from_pretrained(
+    chat_handler = MoondreamChatHandler.from_pretrained(
         repo_id=MODEL_PATH,
         filename=MM_PROJ_FILEPATH,
     )

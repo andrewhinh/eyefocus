@@ -3,10 +3,10 @@ from pathlib import Path, PurePosixPath
 import modal
 
 # Constants
-PREFIX_PATH = Path("src/modeldemo")
-ARTIFACT_PATH = PREFIX_PATH / "training" / "artifacts"
+PREFIX_PATH = Path(__file__).parent
+ARTIFACT_PATH = PREFIX_PATH / "artifacts"
 TRAIN_CONFIG_PATH = PREFIX_PATH / "config" / "train.yml"
-TRAIN_SCRIPT_PATH = PREFIX_PATH / "training" / "train.py"
+TRAIN_SCRIPT_PATH = PREFIX_PATH / "train.py"
 SWEEP_CONFIG_PATH = PREFIX_PATH / "config" / "sweep.yml"
 EVAL_CONFIG_PATH = PREFIX_PATH / "config" / "eval.yml"
 SERVE_CONFIG_PATH = PREFIX_PATH / "config" / "serve.yml"
@@ -42,20 +42,20 @@ IMAGE = (
     )
     .apt_install("git")  # add system dependencies
     .pip_install(  # add Python dependencies
-        "bitsandbytes==0.43.3",
-        "datasets==2.21.0",
+        "pillow==10.4.0",
+        "torch==2.4.1",
+        "accelerate==0.34.2",
+        "datasets==3.0.0",
+        "einops==0.8.0",
+        "python-dotenv==1.0.1",
+        "timm==1.0.9",
+        "torchvision==0.19.1",
+        "transformers==4.37.2",
         "hf_transfer==0.1.8",
-        "numpy==2.1.0",
-        "peft==0.12.0",
-        "scipy==1.14.1",
-        "torch==2.4.0",
-        "transformers==4.44.2",
         "wandb==0.17.7",
-        "accelerate==0.33.0",
         "ninja==1.11.1.1",
         "packaging==24.1",
         "wheel==0.44.0",
-        "python-dotenv==1.0.1",
         "pydantic==2.8.2",
     )
     .run_commands(  # add FlashAttention for faster inference using a shell command

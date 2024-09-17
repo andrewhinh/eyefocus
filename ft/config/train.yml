@@ -1,0 +1,57 @@
+# Data
+
+## Extract
+dataset_name: "rootsautomation/ScreenSpot" # ~2500 tok (per image + text) * ~1200 samples = 3B total tokens
+data_split: test
+data_dir: "screenspot"
+
+## Transform
+parent_model_path: "OpenGVLab/InternVL2-Llama3-76B"
+max_num: 12
+max_new_tokens: 256
+do_sample: True
+sample_bs: 8
+
+## Load
+total_bs: 131072 # 2**17 (~0.00005 * 3B tokens)
+bs: 8 # micro batch size
+seq_len: 4096 # to fit image + text tokens
+
+# Training
+
+## Model
+model_path: vikhyatk/moondream2
+
+## Seed
+seed: 42
+
+## Wandb
+project: modeldemo
+run_name: llama3.1-8b-fineweb10B
+log_freq: 1
+
+## Optimizer (AdamW)
+max_lr: !!float 6e-4
+beta1: 0.9
+beta2: 0.95
+eps: !!float 1e-8
+wd: 0.1
+
+## LR Scheduler (OneCycle)
+max_steps: 2 # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
+pct_start: 0.3
+anneal_strategy: "cos" # options = 'cos', 'linear'
+cycle_momentum: True
+base_momentum: 0.85
+max_momentum: 0.95
+div_factor: 25.0
+final_div_factor: 10000.0
+three_phase: False
+
+## Loop
+eval_interval: 1
+val_steps: 1
+log_ckpt: True
+num_return_sequences: 4
+max_length: 32
+text: "Hello, I'm a language model,"

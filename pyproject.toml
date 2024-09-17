@@ -18,6 +18,19 @@ dependencies = [
 [project.scripts]
 modeldemo = "modeldemo:app"
 
+[project.optional-dependencies]
+ft = [
+    "accelerate>=0.34.2",
+    "datasets>=3.0.0",
+    "einops>=0.8.0",
+    "flash-attn>=2.6.3",
+    "modal>=0.64.115",
+    "python-dotenv>=1.0.1",
+    "timm>=1.0.9",
+    "torchvision>=0.19.1",
+    "transformers>=4.44.2",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

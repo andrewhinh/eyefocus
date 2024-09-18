@@ -1,57 +1,69 @@
-# Data
+# seed
+seed: 42
 
-## Extract
-dataset_name: "rootsautomation/ScreenSpot" # ~2500 tok (per image + text) * ~1200 samples = 3B total tokens
+# data
+
+## extract
+dataset_name: "rootsautomation/ScreenSpot" # ~1300 samples
 data_split: test
 data_dir: "screenspot"
 
-## Transform
+## transform
 parent_model_path: "OpenGVLab/InternVL2-Llama3-76B"
 max_num: 12
 max_new_tokens: 256
 do_sample: True
 sample_bs: 8
 
-## Load
-total_bs: 131072 # 2**17 (~0.00005 * 3B tokens)
-bs: 8 # micro batch size
-seq_len: 4096 # to fit image + text tokens
+## load
+gradient_accumulation_steps: 2 # used to simulate larger batch sizes
+batch_size: 32 # if gradient_accumulation_steps > 1, this is the micro-batch size
+block_size: 2048 # to fit image + text tokens, TODO: make this dynamic
+val_split: 0.1
 
 # Training
 
 ## Model
 model_path: vikhyatk/moondream2
+model_revision: "2024-07-23"
 
-## Seed
-seed: 42
+## I/O
+out_dir: 'moondream2-ScreenSpot'
+eval_interval: 5
+log_interval: 1
+eval_iters: 4
+eval_only: False # if True, script exits right after the first eval
+always_save_checkpoint: True # if True, always save a checkpoint after each eval
+init_from: 'scratch' # 'scratch' or 'resume'
 
-## Wandb
-project: modeldemo
-run_name: llama3.1-8b-fineweb10B
-log_freq: 1
+## wandb logging
+wandb_log: False # disabled by default
+wandb_project: modeldemo
+wandb_run_name: moondream2-ScreenSpot # 'run' + str(time.time())
 
-## Optimizer (AdamW)
-max_lr: !!float 6e-4
+## adamw optimizer
+learning_rate: !!float 1e-5 # max learning rate
+max_iters: 40 # total number of training iterations, ~1 epoch
+weight_decay: 0.0
 beta1: 0.9
 beta2: 0.95
-eps: !!float 1e-8
-wd: 0.1
+eps: !!float 1e-6
+grad_clip: 1.0 # clip gradients at this value, or disable if == 0.0
 
-## LR Scheduler (OneCycle)
-max_steps: 2 # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
-pct_start: 0.3
-anneal_strategy: "cos" # options = 'cos', 'linear'
-cycle_momentum: True
-base_momentum: 0.85
-max_momentum: 0.95
-div_factor: 25.0
-final_div_factor: 10000.0
-three_phase: False
+## learning rate decay settings
+decay_lr: True # whether to decay the learning rate
+warmup_iters: 1 # how many steps to warm up for
+lr_decay_iters: 40 # should be ~= max_iters per Chinchilla
+min_lr: !!float 1e-6  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 
-## Loop
-eval_interval: 1
-val_steps: 1
-log_ckpt: True
-num_return_sequences: 4
-max_length: 32
-text: "Hello, I'm a language model,"
+## DDP settings
+backend: 'nccl' # 'nccl', 'gloo', etc.
+
+## system
+compile: True # use PyTorch 2.0 to compile the model to be faster
+
+## sampling
+num_samples: 3
+num_beams: 4
+no_repeat_ngram_size: 5
+early_stopping: True

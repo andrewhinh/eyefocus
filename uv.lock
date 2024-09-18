@@ -548,6 +548,7 @@ ft = [
     { name = "flash-attn", marker = "python_full_version < '4'" },
     { name = "modal", marker = "python_full_version < '4'" },
     { name = "python-dotenv", marker = "python_full_version < '4'" },
+    { name = "term-image", marker = "python_full_version < '4'" },
     { name = "timm", marker = "python_full_version < '4'" },
     { name = "torchvision", marker = "python_full_version < '4'" },
     { name = "transformers", marker = "python_full_version < '4'" },
@@ -567,6 +568,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.4.0" },
     { name = "pre-commit", specifier = ">=3.8.0" },
     { name = "python-dotenv", marker = "extra == 'ft'", specifier = ">=1.0.1" },
+    { name = "term-image", marker = "extra == 'ft'", specifier = ">=0.7.2" },
     { name = "timm", marker = "extra == 'ft'", specifier = ">=1.0.9" },
     { name = "torch", specifier = ">=2.4.1" },
     { name = "torchvision", marker = "extra == 'ft'", specifier = ">=0.19.1" },
@@ -1225,6 +1227,19 @@ dependencies = [
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0f/9c/3dde3ff3b79cc0a14239001f63e5304d0466c2041f3c4535fd39276cd258/synchronicity-0.7.6-py3-none-any.whl", hash = "sha256:c5bb60a0f39c5a161b5013d183cfe6229dc4ee6e3a09714f37da2905635cf983", size = 31312 },
+]
+
+[[package]]
+name = "term-image"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pillow", marker = "python_full_version < '4'" },
+    { name = "requests", marker = "python_full_version < '4'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/39/87/7e8ba20702294ee8b750427c2600308c20f39ddf3b0f73250dc43ef13038/term_image-0.7.2.tar.gz", hash = "sha256:07320573baa667dcde145d55e94769cbaafeea43b61245245153ff5075b55ffb", size = 63946 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/51/986c06467bb274f7c8d5bdb7a60bfb628b2cdf20ee30bc28ce6c4190f0ba/term_image-0.7.2-py3-none-any.whl", hash = "sha256:97d9dba5afcf3989a23b1868adc5b2de3126d1ef915df2a7859f67fbdd613e15", size = 64712 },
 ]
 
 [[package]]

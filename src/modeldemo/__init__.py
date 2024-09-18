@@ -106,7 +106,7 @@ def download_model() -> Llama:
     llm = Llama.from_pretrained(
         repo_id=MODEL_PATH,
         filename=GGML_FILEPATH,
-        n_gpu_layers=-1 if DEVICE == "gpu" else 0,
+        n_gpu_layers=-1 if DEVICE == "cuda" else 0,
         chat_handler=chat_handler,
         n_ctx=MAX_LEN,
         draft_model=LlamaPromptLookupDecoding(num_pred_tokens=10 if DEVICE == "cuda" else 2),

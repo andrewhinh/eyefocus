@@ -22,6 +22,7 @@ from ft.utils import (
     IMAGE,
     PREFIX_PATH,
     PRETRAINED_VOLUME,
+    PROMPT,
     TIMEOUT,
     TRAIN_CONFIG_PATH,
     VOLUME_CONFIG,
@@ -154,39 +155,6 @@ def split_model(model_name: str) -> dict:
 
 # -----------------------------------------------------------------------------
 
-PROMPT = """
-Task: Analyze the given computer screenshot to determine if it shows evidence of focused, productive activity or potentially distracting activity, then provide an appropriate titled response.
-
-Instructions:
-1. Examine the screenshot carefully.
-2. Look for indicators of focused, productive activities including but not limited to:
-   - Code editors or IDEs in use
-   - Document editing software with substantial text visible
-   - Spreadsheet applications with data or formulas
-   - Research papers or educational materials being read
-   - Professional design or modeling software in use
-   - Terminal/command prompt windows with active commands
-3. Identify potentially distracting activities including but not limited to:
-   - Social media websites
-   - Video streaming platforms
-   - Unrelated news websites or apps
-   - Online shopping sites
-   - Music or video players
-   - Messaging apps
-   - Games or gaming platforms
-4. Consider the context: e.g. a coding-related YouTube video might be considered focused activity for a programmer.
-
-Response Format:
-Return a single JSON object with the following fields:
-- is_distracted (boolean): value (true if the screenshot primarily shows evidence of distraction, false if it shows focused activity)
-- title (string): 1-liner snarky title to catch the user's attention (only if is_distracted is true, otherwise an empty string)
-- message (string): 1-liner snarky message to encourage the user to refocus (only if is_distracted is true, otherwise an empty string)
-
-Example responses:
-{"is_distracted": false, "title": "", "message": ""}
-{"is_distracted": true, "title": "Uh-oh!", "message": "Looks like someone's getting a little distracted..."}
-"""
-
 
 def gen_labels(config: dict, is_local: bool = False) -> None:
     ds = load_dataset(config["dataset_name"], trust_remote_code=True, num_proc=max(1, os.cpu_count() // 2))[
@@ -200,7 +168,7 @@ def gen_labels(config: dict, is_local: bool = False) -> None:
     login(token=os.getenv("HF_TOKEN"), new_session=not is_local)
 
     if is_local:
-        local_model_path = ARTIFACT_PATH / config["parent_model_path"]
+        local_model_path = ARTIFACT_PATH / "models" / config["parent_model_path"]
     else:
         local_model_path = Path("/") / PRETRAINED_VOLUME / config["parent_model_path"]
     if not os.path.exists(local_model_path):
@@ -248,15 +216,20 @@ def gen_labels(config: dict, is_local: bool = False) -> None:
 
     ds = ds.add_column("response", responses)
     if is_local:
-        data_root = ARTIFACT_PATH / config["data_dir"]
+        data_root = ARTIFACT_PATH / "data" / config["data_dir"]
     else:
         data_root = Path("/") / DATA_VOLUME / config["data_dir"]
+
+    ds = ds.train_test_split(test_size=config["val_split"], seed=config["seed"])
     ds.save_to_disk(data_root)
-    print(ds[0])
 
 
 if __name__ == "__main__":
     config = yaml.safe_load(open(TRAIN_CONFIG_PATH))
+
+    torch.manual_seed(config["seed"])
+    torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
+    torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
 
     gen_labels(config, is_local=True)
 
@@ -272,17 +245,24 @@ if GPU_TYPE.lower() == "a100":
 APP_NAME = "label_data"
 app = modal.App(name=APP_NAME)
 
+## Modify image to install specific version of transformers
+IMAGE = IMAGE.pip_install("transformers==4.37.2")
+
 
 @app.function(
     image=IMAGE,
     secrets=[modal.Secret.from_dotenv(path=PREFIX_PATH)],
-    gpu=GPU_CONFIG,
+    # gpu=GPU_CONFIG,
     volumes=VOLUME_CONFIG,
     timeout=TIMEOUT,
     cpu=CPU,
 )
 def run():
     config = yaml.safe_load(open(TRAIN_CONFIG_PATH))
+
+    torch.manual_seed(config["seed"])
+    torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
+    torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
 
     gen_labels(config)
 

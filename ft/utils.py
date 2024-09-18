@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path, PurePosixPath
 
 import modal
@@ -50,13 +51,13 @@ IMAGE = (
         "python-dotenv==1.0.1",
         "timm==1.0.9",
         "torchvision==0.19.1",
-        "transformers==4.37.2",
         "hf_transfer==0.1.8",
         "wandb==0.17.7",
         "ninja==1.11.1.1",
         "packaging==24.1",
         "wheel==0.44.0",
         "pydantic==2.8.2",
+        "term-image==0.7.2",
     )
     .run_commands(  # add FlashAttention for faster inference using a shell command
         "pip install flash-attn==2.6.3 --no-build-isolation"
@@ -66,8 +67,53 @@ IMAGE = (
             "HF_HUB_ENABLE_HF_TRANSFER": "1",
         }
     )
-    .copy_local_file(
-        TRAIN_SCRIPT_PATH,
-        f"/root/{TRAIN_SCRIPT_PATH}",
-    )
 )
+
+PROMPT = """
+Task: Analyze the given computer screenshot to determine if it shows evidence of focused, productive activity or potentially distracting activity, then provide an appropriate titled response.
+
+Instructions:
+1. Examine the screenshot carefully.
+2. Look for indicators of focused, productive activities including but not limited to:
+   - Code editors or IDEs in use
+   - Document editing software with substantial text visible
+   - Spreadsheet applications with data or formulas
+   - Research papers or educational materials being read
+   - Professional design or modeling software in use
+   - Terminal/command prompt windows with active commands
+3. Identify potentially distracting activities including but not limited to:
+   - Social media websites
+   - Video streaming platforms
+   - Unrelated news websites or apps
+   - Online shopping sites
+   - Music or video players
+   - Messaging apps
+   - Games or gaming platforms
+4. Consider the context: e.g. a coding-related YouTube video might be considered focused activity for a programmer.
+
+Response Format:
+Return a single JSON object with the following fields:
+- is_distracted (boolean): value (true if the screenshot primarily shows evidence of distraction, false if it shows focused activity)
+- title (string): 1-liner snarky title to catch the user's attention (only if is_distracted is true, otherwise an empty string)
+- message (string): 1-liner snarky message to encourage the user to refocus (only if is_distracted is true, otherwise an empty string)
+
+Example responses:
+{"is_distracted": false, "title": "", "message": ""}
+{"is_distracted": true, "title": "Uh-oh!", "message": "Looks like someone's getting a little distracted..."}
+"""
+
+warnings.filterwarnings(  # filter warning from the terminal image library
+    "ignore",
+    message="It seems this process is not running within a terminal. Hence, some features will behave differently or be disabled.",
+    category=UserWarning,
+)
+
+
+class Colors:
+    """ANSI color codes"""
+
+    GREEN = "\033[0;32m"
+    BLUE = "\033[0;34m"
+    GRAY = "\033[0;90m"
+    BOLD = "\033[1m"
+    END = "\033[0m"

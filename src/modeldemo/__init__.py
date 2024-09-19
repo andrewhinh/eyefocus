@@ -3,7 +3,7 @@ import mss
 import json
 import time
 import os
-from huggingface_hub import login, snapshot_download
+from huggingface_hub import hf_hub_download
 
 from PIL import Image
 import io
@@ -19,8 +19,6 @@ from pathlib import Path
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import MiniCPMv26ChatHandler
 
-from ft.utils import ARTIFACT_PATH, RUNS_VOLUME
-
 # Typer CLI
 app = typer.Typer(
     rich_markup_mode="rich",
@@ -29,8 +27,7 @@ state = {"verbose": False, "super_verbose": False}
 
 
 # Model config
-MODEL_PATH = "openbmb/MiniCPM-V-2_6-gguf"  # can be ckpt dir in runs dir or HF model ID
-IS_PRETRAINED = len(str(MODEL_PATH).split("/")) < 3
+MODEL_PATH = "openbmb/MiniCPM-V-2_6-gguf"
 MM_PROJ_FILEPATH = "mmproj-model-f16.gguf"
 GGML_FILEPATH = "ggml-model-Q2_K.gguf"
 MAX_LEN = 4096
@@ -103,24 +100,12 @@ def pil_to_base64(img: Image) -> str:
 
 ## Reference: https://llama-cpp-python.readthedocs.io/en/stable/#multi-modal-models
 def download_model() -> Llama:
-    runs_path = ARTIFACT_PATH / RUNS_VOLUME
-    models_path = ARTIFACT_PATH / "models"
-    if IS_PRETRAINED:
-        local_model_path = models_path / MODEL_PATH
-        login(token=os.getenv("HF_TOKEN"), new_session=False)
-        if not os.path.exists(local_model_path):
-            os.makedirs(local_model_path)
-            snapshot_download(
-                MODEL_PATH,
-                local_dir=local_model_path,
-                ignore_patterns=["*.pt", "*.bin", "*.pth"],  # Ensure safetensors
-            )
-    else:
-        local_model_path = runs_path / MODEL_PATH
+    local_mm_proj_path = hf_hub_download(MODEL_PATH, MM_PROJ_FILEPATH)
+    local_ggml_path = hf_hub_download(MODEL_PATH, GGML_FILEPATH)
 
-    chat_handler = MiniCPMv26ChatHandler(clip_model_path=str(local_model_path / MM_PROJ_FILEPATH))
+    chat_handler = MiniCPMv26ChatHandler(clip_model_path=local_mm_proj_path)
     llm = Llama(
-        model_path=str(local_model_path / GGML_FILEPATH),
+        model_path=local_ggml_path,
         n_gpu_layers=-1 if DEVICE == "cuda" else 0,
         chat_handler=chat_handler,
         n_ctx=MAX_LEN,

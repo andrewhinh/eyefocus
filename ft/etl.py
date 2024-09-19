@@ -188,7 +188,9 @@ def gen_labels(config: dict, is_local: bool = False) -> None:
         trust_remote_code=True,
         device_map=device_map,
     )
-    tokenizer = AutoTokenizer.from_pretrained(local_model_path, local_files_only=True, use_fast=False)
+    tokenizer = AutoTokenizer.from_pretrained(
+        local_model_path, local_files_only=True, use_fast=False, trust_remote_code=True
+    )
 
     # Generate labels
     responses = [""] * len(ds)
@@ -212,6 +214,7 @@ def gen_labels(config: dict, is_local: bool = False) -> None:
             )
 
         for j, out in enumerate(batch_out):
+            out = out.replace("```json", "").replace("```", "").strip()
             responses[i + j] = out
 
     ds = ds.add_column("response", responses)
@@ -252,7 +255,7 @@ IMAGE = IMAGE.pip_install("transformers==4.37.2")
 @app.function(
     image=IMAGE,
     secrets=[modal.Secret.from_dotenv(path=PREFIX_PATH)],
-    # gpu=GPU_CONFIG,
+    gpu=GPU_CONFIG,
     volumes=VOLUME_CONFIG,
     timeout=TIMEOUT,
     cpu=CPU,

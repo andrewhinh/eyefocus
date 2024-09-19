@@ -2,6 +2,9 @@ from notifypy import Notify
 import mss
 import json
 import time
+import os
+from huggingface_hub import login, snapshot_download
+
 from PIL import Image
 import io
 import traceback
@@ -14,8 +17,9 @@ import typer
 from typing_extensions import Annotated
 from pathlib import Path
 from llama_cpp import Llama
-from llama_cpp.llama_chat_format import MoondreamChatHandler
+from llama_cpp.llama_chat_format import MiniCPMv26ChatHandler
 
+from ft.utils import ARTIFACT_PATH, RUNS_VOLUME
 
 # Typer CLI
 app = typer.Typer(
@@ -25,9 +29,10 @@ state = {"verbose": False, "super_verbose": False}
 
 
 # Model config
-MODEL_PATH = "vikhyatk/moondream2"
-MM_PROJ_FILEPATH = "*mmproj*"
-GGML_FILEPATH = "*text-model*"
+MODEL_PATH = "openbmb/MiniCPM-V-2_6-gguf"  # can be ckpt dir in runs dir or HF model ID
+IS_PRETRAINED = len(str(MODEL_PATH).split("/")) < 3
+MM_PROJ_FILEPATH = "mmproj-model-f16.gguf"
+GGML_FILEPATH = "ggml-model-Q2_K.gguf"
 MAX_LEN = 4096
 
 DEVICE = "cpu"
@@ -98,14 +103,24 @@ def pil_to_base64(img: Image) -> str:
 
 ## Reference: https://llama-cpp-python.readthedocs.io/en/stable/#multi-modal-models
 def download_model() -> Llama:
-    chat_handler = MoondreamChatHandler.from_pretrained(
-        repo_id=MODEL_PATH,
-        filename=MM_PROJ_FILEPATH,
-    )
+    runs_path = ARTIFACT_PATH / RUNS_VOLUME
+    models_path = ARTIFACT_PATH / "models"
+    if IS_PRETRAINED:
+        local_model_path = models_path / MODEL_PATH
+        login(token=os.getenv("HF_TOKEN"), new_session=False)
+        if not os.path.exists(local_model_path):
+            os.makedirs(local_model_path)
+            snapshot_download(
+                MODEL_PATH,
+                local_dir=local_model_path,
+                ignore_patterns=["*.pt", "*.bin", "*.pth"],  # Ensure safetensors
+            )
+    else:
+        local_model_path = runs_path / MODEL_PATH
 
-    llm = Llama.from_pretrained(
-        repo_id=MODEL_PATH,
-        filename=GGML_FILEPATH,
+    chat_handler = MiniCPMv26ChatHandler(clip_model_path=str(local_model_path / MM_PROJ_FILEPATH))
+    llm = Llama(
+        model_path=str(local_model_path / GGML_FILEPATH),
         n_gpu_layers=-1 if DEVICE == "cuda" else 0,
         chat_handler=chat_handler,
         n_ctx=MAX_LEN,

@@ -1,6 +1,6 @@
 [project]
 name = "modeldemo"
-version = "0.18.0"
+version = "0.19.0"
 description = "TBD"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -26,6 +26,7 @@ ft = [
     "flash-attn>=2.6.3",
     "modal>=0.64.115",
     "python-dotenv>=1.0.1",
+    "sentencepiece>=0.2.0",
     "term-image>=0.7.2",
     "timm>=1.0.9",
     "torchvision>=0.19.1",

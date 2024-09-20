@@ -1,27 +1,26 @@
 from notifypy import Notify
-import mss
-import json
 import time
+import timm
+import mss
 from PIL import Image
 import traceback
 import torch
 from threading import Thread
-from transformers import AutoTokenizer, AutoModel, TextIteratorStreamer
+
 from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 import typer
 from typing_extensions import Annotated
 from pathlib import Path
 
-from src.modeldemo.utils import (
-    clean_output,
-    download_model,
-    transform_img,
-    TORCH_DTYPE,
+from .utils import (
+    CLASSES,
+    download_llm,
     SEED,
     MAX_NEW_TOKENS,
-    DO_SAMPLE,
-    PROMPT,
+    TITLE_PROMPT,
+    MESSAGE_PROMPT,
+    create_inputs,
 )
 
 # Typer CLI
@@ -32,14 +31,8 @@ state = {"verbose": False, "super_verbose": False}
 
 
 # Model
-MODEL_PATH = "OpenGVLab/InternVL2-1B"
-DEVICE = "cpu"
-if torch.cuda.is_available():
-    DEVICE = "cuda"
-# TODO: not supported by Internvl2
-# elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-#     DEVICE = "mps"
-WORLD_SIZE = torch.cuda.device_count() if torch.cuda.is_available() else 0
+CLASSIFIER = "eva_large_patch14_196.in22k_ft_in22k_in1k"
+LLM = "Qwen/Qwen2.5-0.5B-Instruct"
 
 # Notifypy
 NOTIFICATION_INTERVAL = 8  # seconds
@@ -51,7 +44,7 @@ notification = Notify(
 )
 
 
-# Helper fns
+# # Helper fns
 def capture_screenshot() -> Image:
     with mss.mss() as sct:
         # Capture the entire screen
@@ -60,32 +53,50 @@ def capture_screenshot() -> Image:
         return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
 
 
-def predict(img: Image, streamer: TextIteratorStreamer, tokenizer: AutoTokenizer, model: AutoModel) -> str:
-    pixel_values = transform_img(img).to(TORCH_DTYPE).to(DEVICE)
-    generation_config = {"max_new_tokens": MAX_NEW_TOKENS, "do_sample": DO_SAMPLE, "streamer": streamer}
+def classify(classifier, img) -> str:
+    t0 = time.time()
+    data_config = timm.data.resolve_model_data_config(classifier)
+    transforms = timm.data.create_transform(**data_config, is_training=False)
+    output = classifier(transforms(img).unsqueeze(0))  # unsqueeze single image into batch of 1
 
+    top1_probabilities, top1_class_indices = torch.topk(output.softmax(dim=1), k=1)
+    pred_prob = top1_probabilities.item()
+    predicted_class = CLASSES[top1_class_indices.item()]
+
+    if state["verbose"]:
+        print(f"Predicted class: {predicted_class} with probability: {pred_prob}")
+
+    t1 = time.time()
+    if state["super_verbose"]:
+        print(f"Classify time: {t1 - t0}")
+    return predicted_class
+
+
+def generate(streamer, tokenizer, llm, prompt) -> str:
+    t0 = time.time()
+    num_tokens = 0
     thread = Thread(
-        target=model.chat,
+        target=llm.generate,
         kwargs={
-            "tokenizer": tokenizer,
-            "pixel_values": pixel_values,
-            "question": PROMPT,
-            "history": None,
-            "return_history": False,
-            "generation_config": generation_config,
+            **create_inputs(tokenizer, llm, prompt),
+            "max_new_tokens": MAX_NEW_TOKENS,
+            "streamer": streamer,
         },
     )
     thread.start()
 
     generated_text = ""
     for new_text in streamer:
-        if new_text == model.conv_template.sep:
-            break
+        num_tokens += 1
         generated_text += new_text
-        if state["super_verbose"]:
+        if state["verbose"]:
             print(new_text, end="", flush=True)
-    if state["super_verbose"]:
+    if state["verbose"]:
         print()
+    t1 = time.time()
+    if state["super_verbose"]:
+        print(f"Tok/sec: {num_tokens / (t1 - t0)}")
+
     return generated_text
 
 
@@ -95,37 +106,26 @@ def run() -> None:
 
     if state["verbose"]:
         print("Press Ctrl+C to stop at any time.")
-        print(f"Using device: {DEVICE}")
         with Progress(
             SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
         ) as progress:
-            progress.add_task("Downloading model...", total=None)
-            streamer, tokenizer, model = download_model(MODEL_PATH, WORLD_SIZE, DEVICE, True)
-        print("Model downloaded!")
+            progress.add_task("Downloading models...", total=None)
+            classifier = timm.create_model(CLASSIFIER, pretrained=True, num_classes=len(CLASSES))
+            streamer, tokenizer, llm = download_llm(LLM, True)
+        print("Models downloaded!")
     else:
-        streamer, tokenizer, model = download_model(MODEL_PATH, WORLD_SIZE, DEVICE, True)
-    model.eval()
+        classifier = timm.create_model(CLASSIFIER, pretrained=True, num_classes=len(CLASSES))
+        streamer, tokenizer, llm = download_llm(LLM, True)
+    classifier.eval()
+    llm.eval()
 
     while True:
         img = capture_screenshot()
-        pred = predict(img, streamer, tokenizer, model)
-        if state["verbose"]:
-            print(pred, end="", flush=True)
-            print()
+        pred = classify(classifier, img)
 
-        try:
-            format_pred = clean_output(pred)
-            format_pred = json.loads(format_pred)
-            is_distracted, title, message = format_pred["is_distracted"], format_pred["title"], format_pred["message"]
-            is_distracted = bool(is_distracted)
-        except Exception as e:
-            if state["verbose"]:
-                print(f"Failed to parse prediction: {e}")
-            continue
-
-        if is_distracted:
-            notification.title = title
-            notification.message = message
+        if pred == "distracted":
+            notification.title = generate(streamer, tokenizer, llm, TITLE_PROMPT)
+            notification.message = generate(streamer, tokenizer, llm, MESSAGE_PROMPT)
             notification.send(block=False)
             time.sleep(NOTIFICATION_INTERVAL)
 

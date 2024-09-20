@@ -241,15 +241,6 @@ wheels = [
 ]
 
 [[package]]
-name = "diskcache"
-version = "5.6.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550 },
-]
-
-[[package]]
 name = "distlib"
 version = "0.3.8"
 source = { registry = "https://pypi.org/simple" }
@@ -279,6 +270,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d6/c7/cf41c991257e9babc429ae0c2c48f5315154e8b94c8ba475dc0247718741/fastapi-0.114.2.tar.gz", hash = "sha256:0adb148b62edb09e8c6eeefa3ea934e8f276dabc038c5a82989ea6346050c3da", size = 295481 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b6/2b/15ac29e524bf0dc8fcf8e90364c05709b3d4fa810a86421c6924ea18cccd/fastapi-0.114.2-py3-none-any.whl", hash = "sha256:44474a22913057b1acb973ab90f4b671ba5200482e7622816d79105dcece1ac5", size = 94049 },
+]
+
+[[package]]
+name = "fastchat"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/67/2010c5549856820647aa3e27c2674e2ca2e25cb2c6b92bb02e4d200ea3a1/fastchat-0.1.0.tar.gz", hash = "sha256:e7032049850ce2c7a5db2a09f130931d8bb8ca3797dad6ff4c8010db986fd1c2", size = 118650 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e7/a3/08514327b955d5bd8fecb5bed9f3348fdc6fe2651d9be78d956fd7f22981/fastchat-0.1.0-py3-none-any.whl", hash = "sha256:7c5363426b8fa384a0cf3f88e6a0593bc4ec011fb551d52d569157deafc948f1", size = 158241 },
 ]
 
 [[package]]
@@ -336,6 +336,20 @@ wheels = [
 [package.optional-dependencies]
 http = [
     { name = "aiohttp", marker = "python_full_version < '4'" },
+]
+
+[[package]]
+name = "gguf"
+version = "0.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "python_full_version < '4'" },
+    { name = "pyyaml", marker = "python_full_version < '4'" },
+    { name = "tqdm", marker = "python_full_version < '4'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0e/c4/a159e9f842b0e8b8495b2689af6cf3426f002cf01207ca8134db82fc4088/gguf-0.10.0.tar.gz", hash = "sha256:52a30ef26328b419ffc47d9269fc580c238edf1c8a19b5ea143c323e04a038c1", size = 65704 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1b/e4/c5f9bd71840ae9afb7e2b7c285ba209f2ef5e9cd83885f8c596c551d3026/gguf-0.10.0-py3-none-any.whl", hash = "sha256:706089fba756a06913227841b4a6c8398360fa991569fd974e663a92b224e33f", size = 71584 },
 ]
 
 [[package]]
@@ -437,18 +451,6 @@ wheels = [
 ]
 
 [[package]]
-name = "llama-cpp-python"
-version = "0.2.90"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "diskcache", marker = "python_full_version < '4'" },
-    { name = "jinja2", marker = "python_full_version < '4'" },
-    { name = "numpy", marker = "python_full_version < '4'" },
-    { name = "typing-extensions", marker = "python_full_version < '4'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1f/19/89836022affc1bf470e2485e28872b489254a66fe587155edba731a07112/llama_cpp_python-0.2.90.tar.gz", hash = "sha256:419b041c62dbdb9f7e67883a6ef2f247d583d08417058776be0bff05b4ec9e3d", size = 63762953 }
-
-[[package]]
 name = "loguru"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -527,11 +529,11 @@ wheels = [
 
 [[package]]
 name = "modeldemo"
-version = "0.21.0"
+version = "0.23.0"
 source = { editable = "." }
 dependencies = [
+    { name = "fastchat", marker = "python_full_version < '4'" },
     { name = "huggingface-hub", marker = "python_full_version < '4'" },
-    { name = "llama-cpp-python", marker = "python_full_version < '4'" },
     { name = "mss", marker = "python_full_version < '4'" },
     { name = "notify-py", marker = "python_full_version < '4'" },
     { name = "pillow", marker = "python_full_version < '4'" },
@@ -546,6 +548,7 @@ ft = [
     { name = "datasets", marker = "python_full_version < '4'" },
     { name = "einops", marker = "python_full_version < '4'" },
     { name = "flash-attn", marker = "python_full_version < '4'" },
+    { name = "gguf", marker = "python_full_version < '4'" },
     { name = "modal", marker = "python_full_version < '4'" },
     { name = "python-dotenv", marker = "python_full_version < '4'" },
     { name = "sentencepiece", marker = "python_full_version < '4'" },
@@ -560,9 +563,10 @@ requires-dist = [
     { name = "accelerate", marker = "extra == 'ft'", specifier = ">=0.34.2" },
     { name = "datasets", marker = "extra == 'ft'", specifier = ">=3.0.0" },
     { name = "einops", marker = "extra == 'ft'", specifier = ">=0.8.0" },
+    { name = "fastchat", specifier = ">=0.1.0" },
     { name = "flash-attn", marker = "extra == 'ft'", specifier = ">=2.6.3" },
+    { name = "gguf", marker = "extra == 'ft'", specifier = ">=0.10.0" },
     { name = "huggingface-hub", specifier = ">=0.24.7" },
-    { name = "llama-cpp-python", specifier = ">=0.2.90" },
     { name = "modal", marker = "extra == 'ft'", specifier = ">=0.64.115" },
     { name = "mss", specifier = ">=9.0.2" },
     { name = "notify-py", specifier = ">=0.3.43" },

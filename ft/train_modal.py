@@ -1,9 +1,8 @@
 import subprocess
 
 import modal
-import torch
 
-from ft.utils import (
+from src.modeldemo.utils import (
     CPU,
     IMAGE,
     PREFIX_PATH,
@@ -22,9 +21,6 @@ if GPU_TYPE.lower() == "a100":
 
 APP_NAME = "train_model"
 app = modal.App(name=APP_NAME)
-
-## Modify image to install specific version of transformers
-IMAGE = IMAGE.pip_install("transformers==4.44.2")
 
 
 def _exec_subprocess(cmd: list[str]):
@@ -52,7 +48,11 @@ def _exec_subprocess(cmd: list[str]):
     cpu=CPU,
 )
 def run():
-    command = f"torchrun --standalone --nproc_per_node={torch.cuda.device_count()} {TRAIN_SCRIPT_PATH} --no_local"
+    command = (
+        f"torchrun --standalone --nproc_per_node={GPU_COUNT} {TRAIN_SCRIPT_PATH} --no_local"
+        if GPU_COUNT > 1
+        else f"python {TRAIN_SCRIPT_PATH} --no_local"
+    )
     _exec_subprocess(command.split())
 
 

@@ -1,20 +1,4 @@
-"""
-This training script can be run both on a single gpu in debug mode,
-and also in a larger training run with distributed data parallel (ddp).
-
-To run on a single GPU, example:
-$ python train.py --batch_size=32 --compile=False
-
-To run with DDP on 4 gpus on 1 node, example:
-$ torchrun --standalone --nproc_per_node=4 train.py
-
-To run with DDP on 4 gpus across 2 nodes, example:
-- Run on the first (master) node with example IP 123.456.123.456:
-$ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 --master_addr=123.456.123.456 --master_port=1234 train.py
-- Run on the worker node:
-$ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.456 --master_port=1234 train.py
-(If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
-"""
+# Reference: https://github.com/karpathy/nanoGPT/blob/master/train.py
 
 import argparse
 import inspect
@@ -39,7 +23,7 @@ from transformers import (
     AutoTokenizer,
 )
 
-from ft.utils import (
+from src.modeldemo.utils import (
     ARTIFACT_PATH,
     DATA_VOLUME,
     PREFIX_PATH,
@@ -49,6 +33,57 @@ from ft.utils import (
     TRAIN_CONFIG_PATH,
     Colors,
 )
+
+# load
+GRADIENT_ACCUMULATION_STEPS = 2  # used to simulate larger batch sizes
+BATCH_SIZE = 4  # if gradient_accumulation_steps > 1, this is the micro-batch size
+BLOCK_SIZE = 2048  # to fit image + text tokens, TODO: make this dynamic
+
+# model
+MODEL_PATH = "vikhyatk/moondream2"
+MODEL_REVISION = None  # https://github.com/vikhyat/moondream/issues/131
+
+## I/O
+OUT_DIR = "moondream2-ScreenSpot"  # 'out_dir' + str(time.time())
+EVAL_INTERVAL = 1
+LOG_INTERVAL = 1
+EVAL_ITERS = 30
+EVAL_ONLY = False  # if True, script exits right after the first eval
+ALWAYS_SAVE_CHECKPOINT = True  # if True, always save a checkpoint after each eval
+INIT_FROM = "scratch"  # 'scratch' or 'resume'
+
+## wandb logging
+WANDB_LOG = False  # disabled by default
+WANDB_PROJECT = "modeldemo"
+WANDB_RUN_NAME = "moondream2-ScreenSpot"  # 'wandb_run_name' + str(time.time())
+
+## adamw optimizer
+LEARNING_RATE = 1e-5  # max learning rate
+MAX_ITERS = 300  # total number of training iterations, ~1 epoch
+WEIGHT_DECAY = 0.0
+BETA1 = 0.9
+BETA2 = 0.95
+EPS = 1e-6
+GRAD_CLIP = 1.0  # clip gradients at this value, or disable if == 0.0
+
+## learning rate decay settings
+DECAY_LR = True  # whether to decay the learning rate
+WARMUP_ITERS = 30  # how many steps to warm up for
+LR_DECAY_ITERS = 300  # should be ~= max_iters per Chinchilla
+MIN_LR = 1e-6  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+
+## DDP settings
+BACKEND = "nccl"  # 'nccl', 'gloo', etc.
+
+## system
+COMPILE = True  # use PyTorch 2.0 to compile the model to be faster
+
+## sampling
+NUM_SAMPLES = 5
+NUM_BEAMS = 4
+NO_REPEAT_NGRAM_SIZE = 5
+EARLY_STOPPING = True
+
 
 # -----------------------------------------------------------------------------
 # Data
@@ -69,7 +104,8 @@ class HFDataset(Dataset):
 
 
 def collate_fn(batch, tokenizer, model, seq_len):
-    images = [model.vision_encoder.preprocess(sample["image"].convert("RGB")) for sample in batch]
+    images = [sample["image"].convert("RGB") for sample in batch]
+    images = torch.stack(model.vision_encoder.preprocess(images))
 
     labels_acc = []
     tokens_acc = []
@@ -78,7 +114,7 @@ def collate_fn(batch, tokenizer, model, seq_len):
         toks = [tokenizer.bos_token_id]
         labs = [-100] * (IMG_TOKENS + 1)
 
-        q_t = tokenizer(f"\n\nQuestion: {PROMPT}\n\nAnswer:", add_special_tokens=False).input_ids
+        q_t = tokenizer(f"\n\n{PROMPT}\n\nAnswer:", add_special_tokens=False).input_ids
         toks.extend(q_t)
         labs.extend([-100] * len(q_t))
 
@@ -114,12 +150,14 @@ def collate_fn(batch, tokenizer, model, seq_len):
 def loss_fn(batch, model, device):
     images, tokens, labels, attn_mask = batch
 
+    images = images.to(device)
     tokens = tokens.to(device)
     labels = labels.to(device)
     attn_mask = attn_mask.to(device)
 
     with torch.no_grad():
-        img_embs = model.vision_encoder(images)
+        img_embs = model.vision_encoder.encoder(images)
+        img_embs = model.vision_encoder.projection(img_embs)
 
     tok_embs = model.text_model.get_input_embeddings()(tokens)
     inputs_embeds = torch.cat((tok_embs[:, 0:1, :], img_embs, tok_embs[:, 1:, :]), dim=1)
@@ -146,6 +184,26 @@ def estimate_loss(model, dataloader, eval_iters, ctx, device):
         losses[k] = loss.item()
     model.train()
     return losses.mean()
+
+
+def sample_preds(model, dataset, num_samples, tokenizer, num_beams, no_repeat_ngram_size, early_stopping):
+    model.eval()
+    answers = []
+    for i, sample in enumerate(dataset):
+        if i >= num_samples:
+            break
+        with torch.no_grad():
+            answer = model.answer_question(
+                model.encode_image(sample["image"]),
+                PROMPT,
+                tokenizer=tokenizer,
+                num_beams=num_beams,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+                early_stopping=early_stopping,
+            )
+        answers.append(answer)
+    model.train()
+    return answers
 
 
 def get_lr_fn(
@@ -213,7 +271,7 @@ def train(  # noqa: C901
     print(f"tokens per iteration will be: {tokens_per_iter:,}")
 
     runs_path = ARTIFACT_PATH / RUNS_VOLUME if is_local else Path("/") / RUNS_VOLUME
-    out_dir = runs_path / config["out_dir"]
+    out_dir = runs_path / (config["out_dir"] + f"_{time.time():.0f}")
     if master_process:
         os.makedirs(out_dir, exist_ok=True)
         print(f"Starting training run in {out_dir}.")
@@ -223,18 +281,16 @@ def train(  # noqa: C901
     device_type = "cuda" if "cuda" in device else "cpu"  # for later use in torch.autocast
     # note: float16 data type will automatically use a GradScaler
     dtype = (
-        "float32"
-        if device == "cpu"
-        else ("bfloat16" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "float16")
+        "float32" if device == "cpu" else "float16"  # bfloat16 not supported by safetensors (when converting to gguf)
     )
-    ptdtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[dtype]
+    ptdtype = {"float32": torch.float32, "float16": torch.float16}[dtype]
     ctx = nullcontext() if device_type == "cpu" else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
     # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
     iter_num = 0
     best_val_loss = 1e9
 
-    # load data
+    # model init
     login(token=os.getenv("HF_TOKEN"), new_session=not is_local)
 
     if is_local:
@@ -252,28 +308,6 @@ def train(  # noqa: C901
 
     tokenizer = AutoTokenizer.from_pretrained(local_model_path, local_files_only=True)
 
-    if is_local:
-        data_root = ARTIFACT_PATH / "data" / config["data_dir"]
-    else:
-        data_root = Path("/") / DATA_VOLUME / config["data_dir"]
-
-    train_dataset = datasets.load_from_disk(data_root / "train")
-    val_dataset = datasets.load_from_disk(data_root / "test")
-
-    train_loader = DataLoader(
-        HFDataset(train_dataset),
-        batch_size=config["batch_size"],
-        shuffle=True,
-        collate_fn=lambda x: collate_fn(x, tokenizer, raw_model, config["block_size"]),  # raw_model defined below
-    )
-    val_loader = DataLoader(
-        HFDataset(val_dataset),
-        batch_size=config["batch_size"],
-        shuffle=False,
-        collate_fn=lambda x: collate_fn(x, tokenizer, raw_model, config["block_size"]),  # raw_model defined below
-    )
-
-    # model init
     model = AutoModelForCausalLM.from_pretrained(
         local_model_path,
         trust_remote_code=True,
@@ -300,8 +334,32 @@ def train(  # noqa: C901
     model.to(device)
     model.text_model.transformer.gradient_checkpointing_enable()
 
-    # initialize a GradScaler. If enabled=False scaler is a no-op
-    scaler = torch.amp.GradScaler(device, enabled=(dtype == "float16"))
+    # load data
+
+    if is_local:
+        data_root = ARTIFACT_PATH / "data" / config["data_dir"]
+    else:
+        data_root = Path("/") / DATA_VOLUME / config["data_dir"]
+
+    train_dataset = datasets.load_from_disk(data_root / "train")
+    val_dataset = datasets.load_from_disk(data_root / "test")
+
+    train_loader = DataLoader(
+        HFDataset(train_dataset),
+        batch_size=config["batch_size"],
+        shuffle=True,
+        collate_fn=lambda x: collate_fn(x, tokenizer, model, config["block_size"]),  # raw_model defined below
+    )
+    val_loader = DataLoader(
+        HFDataset(val_dataset),
+        batch_size=config["batch_size"],
+        shuffle=False,
+        collate_fn=lambda x: collate_fn(x, tokenizer, model, config["block_size"]),  # raw_model defined below
+    )
+
+    # TODO: https://discuss.huggingface.co/t/attempting-to-unscale-fp16-gradients/91253
+    # # initialize a GradScaler. If enabled=False scaler is a no-op
+    # scaler = torch.amp.GradScaler(device, enabled=(dtype == "float16"))
 
     # optimizer
     ## start with all of the candidate parameters (that require grad)
@@ -353,7 +411,7 @@ def train(  # noqa: C901
         wandb.init(
             dir=runs_path,
             project=config["wandb_project"],
-            name=config["wandb_run_name"],
+            name=config["wandb_run_name"] + f"_{time.time():.0f}",
             config=config,
         )
 
@@ -418,28 +476,23 @@ def train(  # noqa: C901
             break
 
         # once in a while generate from the model (except step 0, which is noise)
-        if (iter_num > 0 and iter_num % config["eval_interval"] == 0) and (not config["compile"]) and (not is_sweep):
-            model.eval()
-
-            for i, sample in enumerate(val_dataset):
-                if i >= config["num_samples"]:
-                    break
-                md_answer = raw_model.answer_question(
-                    raw_model.encode_image(sample["image"]),
-                    PROMPT,
-                    tokenizer=tokenizer,
-                    num_beams=config["num_beams"],
-                    no_repeat_ngram_size=config["no_repeat_ngram_size"],
-                    early_stopping=config["early_stopping"],
-                )
-
+        if (iter_num > 0 and iter_num % config["eval_interval"] == 0) and (not is_sweep):
+            preds = sample_preds(
+                raw_model,
+                val_dataset,
+                config["num_samples"],
+                tokenizer,
+                config["num_beams"],
+                config["no_repeat_ngram_size"],
+                config["early_stopping"],
+            )
+            for sample, pred in zip(val_dataset, preds, strict=False):
                 terminal_image = AutoImage(sample["image"])
                 terminal_image.draw()
                 print(
                     Colors.BOLD,
                     Colors.GREEN,
-                    f"Rank {ddp_rank} sample {i}:\n",
-                    f"Answer: {md_answer}",
+                    f"Answer: {pred}",
                     Colors.END,
                     sep="",
                 )
@@ -462,14 +515,16 @@ def train(  # noqa: C901
                     loss / config["gradient_accumulation_steps"]
                 )  # scale the loss to account for gradient accumulation
             # backward pass, with gradient scaling if training in fp16
-            scaler.scale(loss).backward()
+            loss.backward()
+            # scaler.scale(loss).backward()
         # clip the gradient
         if config["grad_clip"] != 0.0:
-            scaler.unscale_(optimizer)
+            # scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), config["grad_clip"])
         # step the optimizer and scaler if training in fp16
-        scaler.step(optimizer)
-        scaler.update()
+        optimizer.step()
+        # scaler.step(optimizer)
+        # scaler.update()
         # flush the gradients as soon as we can, no need for this memory anymore
         optimizer.zero_grad(set_to_none=True)
 

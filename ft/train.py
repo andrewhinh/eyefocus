@@ -1,4 +1,5 @@
 # https://github.com/huggingface/pytorch-image-models/blob/main/train.py
+
 import importlib
 import json
 import logging
@@ -25,6 +26,7 @@ from timm.utils import ApexScaler, NativeScaler
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
+from ft.utils import ARTIFACT_PATH
 from src.modeldemo.utils import CLASSES
 
 try:
@@ -62,13 +64,10 @@ has_compile = hasattr(torch, "compile")
 
 _logger = logging.getLogger("train")
 
-parent_path = Path(__file__).parent
-artifact_path = parent_path / "artifacts"
-
 # -----------------------------------------------------------------------------
 
 # Dataset parameters
-data_dir = artifact_path / "data"  # path to dataset (root dir)
+data_dir = ARTIFACT_PATH / "data"  # path to dataset (root dir)
 dataset = ""  # dataset type + name ("<type>/<name>") (default: ImageFolder or ImageTar if empty)
 train_split = "train"  # dataset train split (default: train)
 val_split = "validation"  # dataset validation split (default: validation)
@@ -77,7 +76,7 @@ input_key = None  # Dataset key for input images.
 target_key = None  # Dataset key for target labels.
 
 # Model parameters
-model_name = "resnet50"  # Name of model to train (default: "resnet50")
+model = "resnet152"  # Name of model to train (default: "resnet50")
 pretrained = True  # Start with pretrained version of specified network (if avail)
 pretrained_path = None  # Load this checkpoint as if they were the pretrained weights (with adaptation).
 initial_checkpoint = ""  # Load this checkpoint into model after initialization (default: none)
@@ -92,7 +91,7 @@ crop_pct = None  # Input image center crop percent (for validation only)
 mean = None  # Override mean pixel value of dataset
 std = None  # Override std deviation of dataset
 interpolation = ""  # Image resize interpolation type (overrides model)
-batch_size = 128  # Input batch size for training (default: 128)
+batch_size = 64  # Input batch size for training (default: 128)
 validation_batch_size = None  # Validation batch size override (default: None)
 channels_last = False  # Use channels_last memory layout
 fuser = ""  # Select jit fuser. One of ('', 'te', 'old', 'nvfuser')
@@ -105,7 +104,7 @@ head_init_bias = None  # Head initialization bias value
 
 # scripting / codegen
 torchscript = False  # torch.jit.script the full model
-torchcompile = "inductor"  # Enable compilation w/ specified backend (default: "inductor")
+torchcompile = None  # Enable compilation w/ specified backend (default: "inductor")
 
 # Device & distributed
 device = "cpu"  # Device (accelerator) to use.
@@ -113,6 +112,7 @@ if torch.cuda.is_available():
     device = "cuda"
 elif torch.mps.is_available():
     device = "mps"
+ddp_backend = "nccl"  # Distributed backend (default: "nccl")
 amp = False  # use NVIDIA Apex AMP or Native AMP for mixed precision training
 amp_dtype = "float16"  # lower precision AMP dtype (default: float16)
 amp_impl = "native"  # AMP impl to use, "native" or "apex" (default: native)
@@ -125,7 +125,7 @@ opt = "adamw"  # Optimizer (default: "sgd")
 opt_eps = None  # Optimizer Epsilon (default: None, use opt default)
 opt_betas = None  # Optimizer Betas (default: None, use opt default)
 momentum = 0.9  # Optimizer momentum (default: 0.9)
-weight_decay = 2e-5  # weight decay (default: 2e-5)
+weight_decay = 1e-4  # weight decay (default: 2e-5)
 clip_grad = 1.0  # Clip gradient norm (default: None, no clipping)
 clip_mode = "norm"  # Gradient clipping mode. One of ("norm", "value", "agc")
 layer_decay = None  # layer-wise learning rate decay (default: None)
@@ -134,7 +134,7 @@ opt_kwargs = {}  # Additional optimizer keyword arguments
 # Learning rate schedule parameters
 sched = "cosine"  # LR scheduler (default: "cosine")
 sched_on_updates = False  # Apply LR scheduler step on update instead of epoch end.
-lr = None  # learning rate, overrides lr-base if set (default: None)
+lr = 3e-4  # learning rate, overrides lr-base if set (default: None)
 lr_base = 0.1  # base learning rate: lr = lr_base * global_batch_size / base_size
 lr_base_size = 256  # base learning rate batch size (divisor, default: 256).
 lr_base_scale = ""  # base learning rate vs batch_size scaling ("linear", "sqrt", based on opt if empty)
@@ -159,7 +159,7 @@ patience_epochs = 10  # patience epochs for Plateau LR scheduler (default: 10)
 decay_rate = 0.1  # LR decay rate (default: 0.1)
 
 # Augmentation & regularization parameters
-no_aug = False  # Disable all training augmentation, override other train aug args
+no_aug = True  # Disable all training augmentation, override other train aug args
 train_crop_mode = None  # Crop-mode in train
 scale = [0.08, 1.0]  # Random resize scale (default: 0.08 1.0)
 ratio = [0.75, 1.33]  # Random resize aspect ratio (default: 0.75 1.33)
@@ -218,7 +218,7 @@ workers = os.cpu_count() // 2 + 1  # how many training processes to use (default
 save_images = False  # save images of input batches every log interval for debugging
 pin_mem = False  # Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.
 no_prefetcher = False  # disable fast prefetcher
-output = artifact_path / "runs"  # path to output folder (default: none, current dir)
+output = ARTIFACT_PATH / "runs"  # path to output folder (default: none, current dir)
 experiment = ""  # name of train experiment, name of sub-folder for output
 eval_metric = "top1"  # Best metric (default: "top1")
 tta = 0  # Test/inference time augmentation (oversampling) factor. 0=None (default: 0)
@@ -254,7 +254,7 @@ def main():  # noqa: C901
 
     distributed = int(os.environ.get("RANK", -1)) != -1  # is this a ddp run?
     if distributed:
-        init_process_group(backend=config["torchcompile"])
+        init_process_group(backend=config["ddp_backend"])
         rank = int(os.environ["RANK"])
         local_rank = int(os.environ["LOCAL_RANK"])
         world_size = int(os.environ["WORLD_SIZE"])
@@ -311,7 +311,7 @@ def main():  # noqa: C901
         }
 
     model = create_model(
-        config["model_name"],
+        config["model"],
         pretrained=config["pretrained"],
         in_chans=in_chans,
         num_classes=config["num_classes"],
@@ -342,7 +342,7 @@ def main():  # noqa: C901
 
     if rank == 0:
         _logger.info(
-            f"Model {safe_model_name(config['model_name'])} created, param count:{sum([m.numel() for m in model.parameters()])}"
+            f"Model {safe_model_name(config['model'])} created, param count:{sum([m.numel() for m in model.parameters()])}"
         )
     data_config = resolve_data_config(config, model=model, verbose=rank == 0)
 
@@ -632,7 +632,7 @@ def main():  # noqa: C901
             exp_name = "-".join(
                 [
                     datetime.now().strftime("%Y%m%d-%H%M%S"),
-                    safe_model_name(config["model_name"]),
+                    safe_model_name(config["model"]),
                     str(data_config["input_size"][-1]),
                 ]
             )

@@ -18,6 +18,7 @@ from transformers import AutoModel, AutoTokenizer, BitsAndBytesConfig, PreTraine
 
 from ft.utils import (
     ARTIFACT_PATH,
+    CLASSES,
     CPU,
     DATA_VOLUME,
     IMAGE,
@@ -26,7 +27,6 @@ from ft.utils import (
     TIMEOUT,
     VOLUME_CONFIG,
 )
-from src.modeldemo.utils import CLASSES
 
 # extract
 DATASET_NAME = "rootsautomation/ScreenSpot"  # ~1300 samples

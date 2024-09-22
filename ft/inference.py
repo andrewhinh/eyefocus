@@ -15,8 +15,7 @@ from timm.layers import apply_test_time_pool
 from timm.models import create_model
 from timm.utils import AverageMeter, set_jit_fuser, setup_default_logging
 
-from ft.utils import ARTIFACT_PATH
-from src.modeldemo.utils import CLASSES
+from ft.utils import ARTIFACT_PATH, CLASSES
 
 try:
     from apex import amp  # noqa: F401

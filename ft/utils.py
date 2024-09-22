@@ -6,6 +6,8 @@ import modal
 
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
+CLASSES = ["focused", "distracted"]
+
 # FT filepaths
 PREFIX_PATH = Path(__file__).parent
 ARTIFACT_PATH = PREFIX_PATH / "artifacts"

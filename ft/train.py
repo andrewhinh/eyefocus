@@ -1,5 +1,4 @@
 # https://github.com/huggingface/pytorch-image-models/blob/main/train.py
-
 import importlib
 import json
 import logging
@@ -15,19 +14,20 @@ from types import SimpleNamespace
 import torch
 import torch.nn as nn
 import torchvision.utils
+from huggingface_hub import login
 from timm import utils
 from timm.data import AugMixDataset, FastCollateMixup, Mixup, create_dataset, create_loader, resolve_data_config
 from timm.layers import convert_splitbn_model, convert_sync_batchnorm, set_fast_norm
 from timm.loss import BinaryCrossEntropy, JsdCrossEntropy, LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.models import create_model, load_checkpoint, model_parameters, resume_checkpoint, safe_model_name
+from timm.models.hub import push_to_hf_hub
 from timm.optim import create_optimizer_v2, optimizer_kwargs
 from timm.scheduler import create_scheduler_v2, scheduler_kwargs
 from timm.utils import ApexScaler, NativeScaler
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
-from ft.utils import ARTIFACT_PATH
-from src.modeldemo.utils import CLASSES
+from ft.utils import ARTIFACT_PATH, CLASSES
 
 try:
     from apex import amp
@@ -224,6 +224,9 @@ eval_metric = "top1"  # Best metric (default: "top1")
 tta = 0  # Test/inference time augmentation (oversampling) factor. 0=None (default: 0)
 use_multi_epochs_loader = False  # use the multi-epochs-loader to save time at the beginning of every epoch
 log_wandb = False  # log training and validation metrics to wandb
+model_hub_name = "-".join(
+    [safe_model_name(model), str(input_size[-1]), "Screenspot"]
+)  # name of the model when pushed to the HF hub
 
 # -----------------------------------------------------------------------------
 
@@ -789,6 +792,13 @@ def main():  # noqa: C901
         results["best"] = results["all"][best_epoch - start_epoch]
         _logger.info("*** Best metric: {0} (epoch {1})".format(best_metric, best_epoch))
     print(f"--result\n{json.dumps(results, indent=4)}")
+
+    login(token=os.getenv("HF_TOKEN"), new_session=False)
+    push_to_hf_hub(
+        model,
+        model_hub_name,
+        model_config={"label_names": CLASSES},
+    )
 
     if distributed:
         destroy_process_group()

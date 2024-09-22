@@ -1,38 +1,47 @@
 from notifypy import Notify
 import time
-import timm
-import mss
-from PIL import Image
-import traceback
+
+from pathlib import Path
+
 import torch
+from PIL import Image
+import mss
+import traceback
 from threading import Thread
 
 from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 import typer
 from typing_extensions import Annotated
-from pathlib import Path
 
 from .utils import (
-    CLASSES,
-    download_llm,
-    SEED,
     MAX_NEW_TOKENS,
     TITLE_PROMPT,
     MESSAGE_PROMPT,
-    create_inputs,
+    setup_classifier,
+    class_config,
+    setup_llm,
 )
+
+# -----------------------------------------------------------------------------
+
+# Classifier
+CLASSIFIER = "hf_hub:andrewhinh/resnet152-224-Screenspot"
+
+# LLM
+LLM = "Qwen/Qwen2.5-0.5B-Instruct"
+
+
+# -----------------------------------------------------------------------------
+
 
 # Typer CLI
 app = typer.Typer(
     rich_markup_mode="rich",
 )
-state = {"verbose": False, "super_verbose": False}
+state = {"verbose": False}
 
-
-# Model
-CLASSIFIER = "eva_large_patch14_196.in22k_ft_in22k_in1k"
-LLM = "Qwen/Qwen2.5-0.5B-Instruct"
+# -----------------------------------------------------------------------------
 
 # Notifypy
 NOTIFICATION_INTERVAL = 8  # seconds
@@ -42,6 +51,8 @@ notification = Notify(
     default_notification_icon=str(Path(__file__).parent / "icon.png"),
     default_notification_audio=str(Path(__file__).parent / "sound.wav"),
 )
+
+# -----------------------------------------------------------------------------
 
 
 # Helper fns
@@ -53,32 +64,34 @@ def capture_screenshot() -> Image:
         return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
 
 
-def classify(classifier, img) -> str:
+def classify(model, transforms, amp_autocast, image: Image):
     t0 = time.time()
-    data_config = timm.data.resolve_model_data_config(classifier)
-    transforms = timm.data.create_transform(**data_config, is_training=False)
-    output = classifier(transforms(img).unsqueeze(0))  # unsqueeze single image into batch of 1
 
-    top1_probabilities, top1_class_indices = torch.topk(output.softmax(dim=1), k=1)
-    pred_prob = top1_probabilities.item()
-    predicted_class = CLASSES[top1_class_indices.item()]
-
-    if state["verbose"]:
-        print(f"Predicted class: {predicted_class} with probability: {pred_prob}")
+    device = torch.device(class_config["device"])
+    img_pt = transforms(image).unsqueeze(0).to(device)
+    with torch.no_grad():
+        with amp_autocast():
+            output = model(img_pt)
+    output = output.softmax(-1)
+    output, indices = output.topk(class_config["topk"])
+    labels = model.pretrained_cfg["label_names"]
+    predictions = [{"label": labels[i], "score": v.item()} for i, v in zip(indices, output, strict=False)]
+    preds, probs = [p["label"] for p in predictions], [p["score"] for p in predictions]
 
     t1 = time.time()
-    if state["super_verbose"]:
-        print(f"Classify time: {t1 - t0}")
-    return predicted_class
+    if state["verbose"]:
+        print(f"Prediction: {preds[0]}")
+        print(f"Probability: ({probs[0] * 100:.2f}%) in {t1 - t0:.2f} seconds")
+    return preds[0]
 
 
-def generate(streamer, tokenizer, llm, prompt) -> str:
+def generate(streamer, llm_tsfm, llm, prompt) -> str:
     t0 = time.time()
     num_tokens = 0
     thread = Thread(
         target=llm.generate,
         kwargs={
-            **create_inputs(tokenizer, llm, prompt),
+            **llm_tsfm(prompt),
             "max_new_tokens": MAX_NEW_TOKENS,
             "streamer": streamer,
         },
@@ -91,41 +104,37 @@ def generate(streamer, tokenizer, llm, prompt) -> str:
         generated_text += new_text
         if state["verbose"]:
             print(new_text, end="", flush=True)
+    t1 = time.time()
     if state["verbose"]:
         print()
-    t1 = time.time()
-    if state["super_verbose"]:
-        print(f"Tok/sec: {num_tokens / (t1 - t0)}")
+        print(f"Tok/sec: {num_tokens / (t1 - t0):.2f}")
 
     return generated_text
 
 
 # Typer CLI
 def run() -> None:
-    torch.manual_seed(SEED)
-
     if state["verbose"]:
         print("Press Ctrl+C to stop at any time.")
         with Progress(
             SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
         ) as progress:
             progress.add_task("Downloading models...", total=None)
-            classifier = timm.create_model(CLASSIFIER, pretrained=True, num_classes=len(CLASSES))
-            streamer, tokenizer, llm = download_llm(LLM, True)
-        print("Models downloaded!")
+            cls_tsfm, amp_autocast, classifier = setup_classifier(CLASSIFIER, state["verbose"])
+            streamer, llm_tsfm, llm = setup_llm(LLM)
     else:
-        classifier = timm.create_model(CLASSIFIER, pretrained=True, num_classes=len(CLASSES))
-        streamer, tokenizer, llm = download_llm(LLM, True)
+        cls_tsfm, amp_autocast, classifier = setup_classifier(CLASSIFIER, state["verbose"])
+        streamer, llm_tsfm, llm = setup_llm(LLM)
     classifier.eval()
     llm.eval()
 
     while True:
         img = capture_screenshot()
-        pred = classify(classifier, img)
+        pred = classify(classifier, cls_tsfm, amp_autocast, img)
 
         if pred == "distracted":
-            notification.title = generate(streamer, tokenizer, llm, TITLE_PROMPT)
-            notification.message = generate(streamer, tokenizer, llm, MESSAGE_PROMPT)
+            notification.title = generate(streamer, llm_tsfm, llm, TITLE_PROMPT)
+            notification.message = generate(streamer, llm_tsfm, llm, MESSAGE_PROMPT)
             notification.send(block=False)
             time.sleep(NOTIFICATION_INTERVAL)
 
@@ -138,7 +147,6 @@ def run() -> None:
 def main(verbose: Annotated[int, typer.Option("--verbose", "-v", count=True)] = 0) -> None:
     try:
         state["verbose"] = verbose > 0
-        state["super_verbose"] = verbose > 1
         run()
     except KeyboardInterrupt:
         if state["verbose"]:

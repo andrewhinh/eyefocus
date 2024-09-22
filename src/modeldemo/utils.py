@@ -1,29 +1,152 @@
 import os
+from contextlib import suppress
+from functools import partial
+from pathlib import Path
 
 import torch
 from huggingface_hub import login, snapshot_download
+from rich import print
+from timm.data import create_transform, resolve_data_config
+from timm.layers import apply_test_time_pool
+from timm.models import create_model
+from timm.utils import set_jit_fuser, setup_default_logging
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TextIteratorStreamer
 
-SEED = 42
-torch.manual_seed(SEED)
+try:
+    from apex import amp  # noqa: F401
 
-CLASSES = ["focused", "distracted"]
+    has_apex = True
+except ImportError:
+    has_apex = False
 
+has_native_amp = False
+try:
+    if torch.cuda.amp.autocast is not None:
+        has_native_amp = True
+except AttributeError:
+    pass
+
+try:
+    from functorch.compile import memory_efficient_fusion  # noqa: F401
+
+    has_functorch = True
+except ImportError:
+    has_functorch = False
+
+has_compile = hasattr(torch, "compile")
+
+
+# Device & distributed
+device = "cpu"  # Device (accelerator) to use.
+if torch.cuda.is_available():
+    device = "cuda"
+elif torch.mps.is_available():
+    device = "mps"
+num_gpu = torch.cuda.device_count() if device == "cuda" else 0  # Number of GPUS to use
+amp = False  # use Native AMP for mixed precision training
+amp_dtype = "float16"  # lower precision AMP dtype (default: float16)
+
+login(token=os.getenv("HF_TOKEN"), new_session=False)
+
+# -----------------------------------------------------------------------------
+# Classifier
+pretrained = True  # use pre-trained model
+channels_last = False  # Use channels_last memory layout
+fuser = ""  # Select jit fuser. One of ('', 'te', 'old', 'nvfuser')
+
+## scripting / codegen
+torchscript = False  # torch.jit.script the full model
+torchcompile = None  # Enable compilation w/ specified backend (default: inductor).
+aot_autograd = False  # Enable AOT Autograd support.
+
+## Misc
+test_pool = False  # enable test time pool
+topk = 1  # Top-k
+
+
+class_config_keys = [
+    k
+    for k, v in globals().items()
+    if not k.startswith("_") and isinstance(v, (int, float, str, bool, dict, list, Path, type(None)))
+]
+class_config = {k: globals()[k] for k in class_config_keys}  # will be useful for logging
+class_config = {k: str(v) if isinstance(v, Path) else v for k, v in class_config.items()}  # since Path not serializable
+
+
+def setup_classifier(model_name, verbose):  # noqa: C901
+    setup_default_logging()
+
+    class_config["pretrained"] = class_config["pretrained"] or not class_config["checkpoint"]
+
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+
+    device = torch.device(class_config["device"])
+
+    # resolve AMP arguments based on PyTorch / Apex availability
+    amp_autocast = suppress
+    if class_config["amp"]:
+        assert has_native_amp, "Please update PyTorch to a version with native AMP (or use APEX)."
+        assert class_config["amp_dtype"] in ("float16", "bfloat16")
+        amp_dtype = torch.bfloat16 if class_config["amp_dtype"] == "bfloat16" else torch.float16
+        amp_autocast = partial(torch.autocast, device_type=device.type, dtype=amp_dtype)
+        if verbose:
+            print("Running inference in mixed precision with native PyTorch AMP.")
+    else:
+        if verbose:
+            print("Running inference in float32. AMP not enabled.")
+
+    if class_config["fuser"]:
+        set_jit_fuser(class_config["fuser"])
+
+    # create model
+    model = create_model(model_name, pretrained=True)
+    if verbose:
+        print(f"Model {model_name} created, param count: {sum([m.numel() for m in model.parameters()])}")
+
+    data_config = resolve_data_config(class_config, model=model)
+    transforms = create_transform(**data_config, is_training=False)
+    if class_config["test_pool"]:
+        model, _ = apply_test_time_pool(model, data_config)
+
+    model = model.to(device)
+    model.eval()
+    if class_config["channels_last"]:
+        model = model.to(memory_format=torch.channels_last)
+
+    if class_config["torchscript"]:
+        model = torch.jit.script(model)
+    elif class_config["torchcompile"]:
+        assert has_compile, "A version of torch w/ torch.compile() is required for --compile, possibly a nightly."
+        torch._dynamo.reset()
+        model = torch.compile(model, backend=class_config["torchcompile"])
+    elif class_config["aot_autograd"]:
+        assert has_functorch, "functorch is needed for --aot-autograd"
+        model = memory_efficient_fusion(model)
+
+    if class_config["num_gpu"] > 1:
+        model = torch.nn.DataParallel(model, device_ids=list(range(class_config["num_gpu"])))
+
+    return transforms, amp_autocast, model
+
+
+# -----------------------------------------------------------------------------
+
+# LLM
 TORCH_DTYPE = torch.bfloat16
 LOAD_IN_8BIT = False
 LOAD_IN_4BIT = True
 QUANT_TYPE = "nf4"
 USE_DOUBLE_QUANT = True
 
-MAX_NEW_TOKENS = 64
 SYSTEM_PROMPT = "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."
+MAX_NEW_TOKENS = 64
 TITLE_PROMPT = "Create a short, catchy title (2-5 words) about focusing on work or stopping procrastination. The title should be slightly humorous or playful in tone."
 MESSAGE_PROMPT = "Create a short, humorous sentence (maximum 15 words) that playfully tells the user to get back to work or stop procrastinating."
 
 
-def download_llm(model_path, is_local) -> tuple[TextIteratorStreamer, AutoTokenizer, AutoModelForCausalLM]:
-    login(token=os.getenv("HF_TOKEN"), new_session=not is_local)
-
+def setup_llm(model_path):
     local_model_path = snapshot_download(
         model_path,
         ignore_patterns=["*.pt", "*.bin", "*.pth"],  # Ensure safetensors
@@ -56,14 +179,13 @@ def download_llm(model_path, is_local) -> tuple[TextIteratorStreamer, AutoTokeni
     )
     model = torch.compile(model)
 
-    return streamer, tokenizer, model
+    def transforms(prompt):
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        model_inputs = tokenizer([text], return_tensors="pt").to(model.device)
+        return model_inputs
 
-
-def create_inputs(tokenizer: AutoTokenizer, model: AutoModelForCausalLM, prompt: str) -> dict:
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ]
-    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    model_inputs = tokenizer([text], return_tensors="pt").to(model.device)
-    return model_inputs
+    return streamer, transforms, model

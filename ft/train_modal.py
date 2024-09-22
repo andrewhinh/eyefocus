@@ -2,7 +2,7 @@ import subprocess
 
 import modal
 
-from src.modeldemo.utils import (
+from ft.utils import (
     CPU,
     IMAGE,
     PREFIX_PATH,

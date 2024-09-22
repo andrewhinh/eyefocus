@@ -1,13 +1,15 @@
+import os
 import warnings
 from pathlib import Path, PurePosixPath
 
 import modal
 
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
 # FT filepaths
 PREFIX_PATH = Path(__file__).parent
 ARTIFACT_PATH = PREFIX_PATH / "artifacts"
 TRAIN_SCRIPT_PATH = PREFIX_PATH / "train.py"
-
 
 # Modal
 CUDA_VERSION = "12.4.0"
@@ -74,7 +76,7 @@ warnings.filterwarnings(  # filter warning from the terminal image library
 )
 
 
-class Colors:
+class COLORS:
     """ANSI color codes"""
 
     GREEN = "\033[0;32m"

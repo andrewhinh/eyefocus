@@ -2,6 +2,7 @@
 
 import math
 import os
+import random
 from pathlib import Path
 
 import modal
@@ -25,12 +26,11 @@ from ft.utils import (
     TIMEOUT,
     VOLUME_CONFIG,
 )
-from src.modeldemo.utils import CLASSES, SEED
+from src.modeldemo.utils import CLASSES
 
 # extract
 DATASET_NAME = "rootsautomation/ScreenSpot"  # ~1300 samples
 DATA_SPLIT = "test"
-DATA_DIR = "screenspot"
 
 # transform
 PARENT_MODEL_PATH = "OpenGVLab/InternVL2-8B"  # "OpenGVLab/InternVL2-Llama3-76B"
@@ -152,8 +152,6 @@ class CPUCompatibleInternVLChatModel(PreTrainedModel):
 
 def download_model(model_path, world_size, device, dtype, is_local) -> tuple[AutoTokenizer, AutoModel]:
     login(token=os.getenv("HF_TOKEN"), new_session=not is_local)
-
-    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
     local_model_path = snapshot_download(
         model_path,
@@ -325,7 +323,12 @@ def gen_labels(is_local: bool = False) -> None:
     ds = load_dataset(DATASET_NAME, trust_remote_code=True, num_proc=max(1, os.cpu_count() // 2))[DATA_SPLIT]
     tokenizer, model = download_model(PARENT_MODEL_PATH, WORLD_SIZE, DEVICE, TORCH_DTYPE, is_local)
 
-    classes = [""] * len(ds)
+    if is_local:
+        data_dir = ARTIFACT_PATH / "data"
+    else:
+        data_dir = Path("/") / DATA_VOLUME
+    train_idxs = random.sample(range(len(ds)), k=math.ceil(len(ds) * (1 - VAL_SPLIT)))
+
     for i in tqdm(range(0, len(ds), SAMPLE_BS), desc="Processing batches"):
         batch = ds[i : i + SAMPLE_BS]
         pixel_vals = [transform_img(image).to(TORCH_DTYPE).to(DEVICE) for image in batch["image"]]
@@ -344,20 +347,18 @@ def gen_labels(is_local: bool = False) -> None:
             )
 
         for j, out in enumerate(batch_out):
-            # print(out)
             try:
                 out = int(out)
             except ValueError:
                 out = -1
-            classes[i + j] = CLASSES[out] if out >= 0 else "error"
-    ds = ds.add_column("class", classes)
-    if is_local:
-        data_root = ARTIFACT_PATH / "data" / DATA_DIR
-    else:
-        data_root = Path("/") / DATA_VOLUME / DATA_DIR
-
-    ds = ds.train_test_split(test_size=VAL_SPLIT, seed=SEED)
-    ds.save_to_disk(data_root)
+            pred = CLASSES[out] if out >= 0 else "error"
+            label_dir = data_dir / "train" / pred if i + j in train_idxs else data_dir / "validation" / pred
+            os.makedirs(label_dir, exist_ok=True)
+            img_path = label_dir / f"{i + j}.jpg"
+            image = batch["image"][j]
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            image.save(img_path)
 
 
 if __name__ == "__main__":

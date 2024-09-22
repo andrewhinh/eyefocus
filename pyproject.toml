@@ -27,6 +27,10 @@ ft = [
     "datasets>=3.0.0",
     "fastchat>=0.1.0",
     "modal>=0.64.128",
+    "python-dotenv>=1.0.1",
+    "sentencepiece>=0.2.0",
+    "term-image>=0.7.2",
+    "wandb>=0.18.1",
 ]
 
 [build-system]

@@ -44,7 +44,7 @@ notification = Notify(
 )
 
 
-# # Helper fns
+# Helper fns
 def capture_screenshot() -> Image:
     with mss.mss() as sct:
         # Capture the entire screen

@@ -61,7 +61,6 @@ except ImportError:
 
 has_compile = hasattr(torch, "compile")
 
-
 _logger = logging.getLogger("train")
 
 # -----------------------------------------------------------------------------

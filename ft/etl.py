@@ -8,6 +8,7 @@ from pathlib import Path
 import modal
 import torch
 from datasets import load_dataset
+from PIL import Image
 from tqdm import tqdm
 
 from ft.utils import (
@@ -28,35 +29,48 @@ from ft.utils import (
 )
 
 # extract
-DATASET_NAME = "rootsautomation/ScreenSpot"  # ~1300 samples
-DATA_SPLIT = "test"
+dataset_name = "rootsautomation/ScreenSpot"  # ~1300 samples
+data_split = "test"
+src_dir = "self"
+data_dir = "data"
 
 # transform
-VAL_SPLIT = 0.1
+val_split = 0.1
 
 
 def gen_labels(is_local: bool = False) -> None:
-    DEVICE = "cpu"
+    device = "cpu"
     if torch.cuda.is_available():
-        DEVICE = "cuda"
+        device = "cuda"
     # TODO: not supported by InternVL2
     # elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    #     DEVICE = "mps"
-    WORLD_SIZE = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    TORCH_DTYPE = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+    #     device = "mps"
+    world_size = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    torch_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+    tokenizer, model = download_model(world_size, device, torch_dtype, is_local)
 
-    ds = load_dataset(DATASET_NAME, trust_remote_code=True, num_proc=max(1, os.cpu_count() // 2))[DATA_SPLIT]
-    tokenizer, model = download_model(WORLD_SIZE, DEVICE, TORCH_DTYPE, is_local)
+    # check if images are present in src dir
+    ## if not load_dataset
+    ## else load from src dir
+    if is_local:
+        data_dir = ARTIFACT_PATH / src_dir
+    else:
+        data_dir = Path("/") / DATA_VOLUME / src_dir
+    if not os.listdir(data_dir):
+        ds = load_dataset(dataset_name, trust_remote_code=True, num_proc=max(1, os.cpu_count() // 2))[data_split]
+        images = [s["image"] for s in ds]
+    else:
+        images = [Image.open(data_dir / f) for f in os.listdir(data_dir)]
 
     if is_local:
-        data_dir = ARTIFACT_PATH / "data"
+        data_dir = ARTIFACT_PATH / data_dir
     else:
-        data_dir = Path("/") / DATA_VOLUME
-    train_idxs = random.sample(range(len(ds)), k=math.ceil(len(ds) * (1 - VAL_SPLIT)))
+        data_dir = Path("/") / DATA_VOLUME / data_dir
+    train_idxs = random.sample(range(len(images)), k=math.ceil(len(images) * (1 - val_split)))
 
-    for i in tqdm(range(0, len(ds), SAMPLE_BS), desc="Processing batches"):
-        batch = ds[i : i + SAMPLE_BS]
-        pixel_vals = [transform_img(image).to(TORCH_DTYPE).to(DEVICE) for image in batch["image"]]
+    for i in tqdm(range(0, len(images), SAMPLE_BS), desc="Processing batches"):
+        batch = images[i : i + SAMPLE_BS]
+        pixel_vals = [transform_img(image).to(torch_dtype).to(device) for image in batch]
         num_patches_list = [pixel_vals[i].size(0) for i in range(len(pixel_vals))]
         pixel_values = torch.cat(pixel_vals, dim=0)
 

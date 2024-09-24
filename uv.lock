@@ -307,6 +307,18 @@ wheels = [
 ]
 
 [[package]]
+name = "fastcore"
+version = "1.7.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging", marker = "python_full_version < '4'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ce/26/39248ce489ed4976acd8ed09d02b1bba678b1622858ac3a896c199e1f5f7/fastcore-1.7.9.tar.gz", hash = "sha256:3565ce75c5bde8e791d5eba82556e33ee191ad1f46731086a171961e12fba405", size = 76456 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0f/f1/6ae1f594363df65e5b64834bf62182e43ea8d2276adccc92223dbf109259/fastcore-1.7.9-py3-none-any.whl", hash = "sha256:2f155dc75a8198116315c36b085f09fb0e3811870b112d86a151d85f5fad4bed", size = 80077 },
+]
+
+[[package]]
 name = "filelock"
 version = "3.15.4"
 source = { registry = "https://pypi.org/simple" }
@@ -361,6 +373,19 @@ wheels = [
 [package.optional-dependencies]
 http = [
     { name = "aiohttp", marker = "python_full_version < '4'" },
+]
+
+[[package]]
+name = "ghapi"
+version = "1.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastcore", marker = "python_full_version < '4'" },
+    { name = "packaging", marker = "python_full_version < '4'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f8/88/97e6b0c94885db3530d04ccab7016c606dcaf08bf0581ced1193b9668d06/ghapi-1.0.6.tar.gz", hash = "sha256:64fdd9f06d8e3373065c42c2a03e067e2bbb9ca18b583cd6e38a28aaad0224f6", size = 65518 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4c/ad/f7204c0c38175f300621af7880737ca6379dd633e9b7d1c0a8fc2748f0dc/ghapi-1.0.6-py3-none-any.whl", hash = "sha256:b3d96bf18fcaa2cb7131bad9de2948e2a1c2bb226377a25826f6c80950c57854", size = 62391 },
 ]
 
 [[package]]
@@ -590,6 +615,7 @@ version = "0.24.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate", marker = "python_full_version < '4'" },
+    { name = "ghapi", marker = "python_full_version < '4'" },
     { name = "huggingface-hub", extra = ["hf-transfer"], marker = "python_full_version < '4'" },
     { name = "mss", marker = "python_full_version < '4'" },
     { name = "notify-py", marker = "python_full_version < '4'" },
@@ -621,6 +647,7 @@ requires-dist = [
     { name = "datasets", marker = "extra == 'ft'", specifier = ">=3.0.0" },
     { name = "fastchat", marker = "extra == 'ft'", specifier = ">=0.1.0" },
     { name = "flash-attn", marker = "extra == 'gpu'", specifier = ">=2.6.3" },
+    { name = "ghapi", specifier = ">=1.0.6" },
     { name = "huggingface-hub", extras = ["hf-transfer"], specifier = ">=0.24.7" },
     { name = "modal", marker = "extra == 'ft'", specifier = ">=0.64.128" },
     { name = "mss", specifier = ">=9.0.2" },

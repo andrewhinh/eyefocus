@@ -8,6 +8,8 @@ from PIL import Image
 import mss
 import traceback
 from threading import Thread
+from ghapi.all import GhApi
+
 
 from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -21,7 +23,13 @@ from .utils import (
     setup_classifier,
     class_config,
     setup_llm,
+    extract_dates,
 )
+
+api = GhApi()
+per_page = 30
+n_pages = 8
+org = "EurekaLabsAI"
 
 # -----------------------------------------------------------------------------
 
@@ -112,6 +120,9 @@ def generate(streamer, llm_tsfm, llm, prompt) -> str:
     return generated_text
 
 
+# -----------------------------------------------------------------------------
+
+
 # Typer CLI
 def run() -> None:
     if state["verbose"]:
@@ -133,8 +144,14 @@ def run() -> None:
         pred = classify(classifier, cls_tsfm, amp_autocast, img)
 
         if pred == "distracted":
-            notification.title = generate(streamer, llm_tsfm, llm, TITLE_PROMPT)
-            notification.message = generate(streamer, llm_tsfm, llm, MESSAGE_PROMPT)
+            data = api.list_events_parallel(per_page=per_page, n_pages=n_pages, org=org)
+            dates = extract_dates(data)
+            notification.title = generate(
+                streamer, llm_tsfm, llm, TITLE_PROMPT.format(org=org, dates=",".join(map(str, dates)))
+            )
+            notification.message = generate(
+                streamer, llm_tsfm, llm, MESSAGE_PROMPT.format(org=org, dates=",".join(map(str, dates)))
+            )
             notification.send(block=False)
             time.sleep(NOTIFICATION_INTERVAL)
 

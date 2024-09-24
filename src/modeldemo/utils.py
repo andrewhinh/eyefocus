@@ -1,5 +1,7 @@
 import os
+import re
 from contextlib import suppress
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 
@@ -11,6 +13,41 @@ from timm.layers import apply_test_time_pool
 from timm.models import create_model
 from timm.utils import set_jit_fuser, setup_default_logging
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TextIteratorStreamer
+
+
+def extract_dates(data: dict):
+    # Regular expression to match ISO 8601 date format
+    date_pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
+
+    dates = []
+
+    def extract_date_from_field(obj, field):
+        if field in obj and obj[field]:
+            match = re.search(date_pattern, obj[field])
+            if match:
+                date_str = match.group()
+                date_obj = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
+                dates.append(date_obj)
+
+    def extract_dates_recursive(obj):
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                if isinstance(value, str) and re.search(date_pattern, value):
+                    extract_date_from_field(obj, key)
+                elif isinstance(value, (dict, list)):
+                    extract_dates_recursive(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                extract_dates_recursive(item)
+
+    # Extract dates from the entire structure
+    extract_dates_recursive(data)
+
+    return dates
+
+
+# -----------------------------------------------------------------------------
+
 
 try:
     from apex import amp  # noqa: F401
@@ -142,8 +179,8 @@ USE_DOUBLE_QUANT = True
 
 SYSTEM_PROMPT = "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."
 MAX_NEW_TOKENS = 64
-TITLE_PROMPT = "Create a short, catchy title (2-5 words) about focusing on work or stopping procrastination. The title should be slightly humorous or playful in tone."
-MESSAGE_PROMPT = "Create a short, humorous sentence (maximum 15 words) that playfully tells the user to get back to work or stop procrastinating."
+TITLE_PROMPT = "Look at the dates of github events from {org} and how numerous they are: {dates}. Then write a short (2-5 words) title about focusing on work or stopping procrastination, noting that they should be as productive as {org}."
+MESSAGE_PROMPT = "Look at the dates of github events from {org} and how numerous they are: {dates}. Then write a short (max 15 words) message about focusing on work or stopping procrastination, noting that they should be as productive as {org}."
 
 
 def setup_llm(model_path):

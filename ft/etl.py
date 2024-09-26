@@ -8,8 +8,10 @@ from pathlib import Path
 import modal
 import torch
 from datasets import load_dataset
+from huggingface_hub import login, snapshot_download
 from PIL import Image
 from tqdm import tqdm
+from transformers import AutoModel, AutoProcessor, BitsAndBytesConfig, MllamaForConditionalGeneration
 
 from ft.utils import (
     ARTIFACT_PATH,
@@ -17,37 +19,122 @@ from ft.utils import (
     CPU,
     DATA_VOLUME,
     IMAGE,
-    MAX_NEW_TOKENS,
     PREFIX_PATH,
-    PROMPT,
-    SAMPLE_BS,
-    TEMPERATURE,
+    PRETRAINED_VOLUME,
     TIMEOUT,
     VOLUME_CONFIG,
-    download_model,
-    transform_img,
 )
 
 # extract
 dataset_name = "rootsautomation/ScreenSpot"  # ~1300 samples
 data_split = "test"
-src_dir = "self"
-data_dir = "data"
+src_dir = "self"  # 'ARTIFACT_PATH /' or '/DATA_VOLUME /' + src_dir
+save_dir = "data"
 
 # transform
+model_path = "meta-llama/Llama-3.2-11B-Vision-Instruct"  # "meta-llama/Llama-3.2-90B-Vision-Instruct"
+load_in_8bit = False
+load_in_4bit = True
+quant_type = "nf4"
+use_double_quant = True
+
 val_split = 0.1
+max_new_tokens = 1
+prompt = """
+Task: Analyze the given computer screenshot to determine if it shows evidence of focused, productive activity or potentially distracting activity.
+
+Instructions:
+1. Examine the screenshot carefully.
+2. Look for indicators of focused, productive activities including but not limited to:
+   - Code editors or IDEs in use
+   - Document editing software with substantial text visible
+   - Spreadsheet applications with data or formulas
+   - Research papers or educational materials being read
+   - Professional design or modeling software in use
+   - Terminal/command prompt windows with active commands
+3. Identify potentially distracting activities including but not limited to:
+   - Social media websites
+   - Video streaming platforms
+   - Unrelated news websites or apps
+   - Online shopping sites
+   - Music or video players
+   - Messaging apps
+   - Games or gaming platforms
+4. Consider the context: e.g. a coding-related YouTube video might be considered focused activity for a programmer.
+
+Response Format:
+Return an integer value indicating whether the screenshot primarily shows evidence of distraction or focused activity.
+0 for focused, 1 for distracted.
+"""
+
+# -----------------------------------------------------------------------------
+
+config_keys = [
+    k
+    for k, v in globals().items()
+    if not k.startswith("_") and isinstance(v, (int, float, str, bool, dict, list, type(None), torch.dtype))
+]
+config = {k: globals()[k] for k in config_keys}  # will be useful for logging
+
+# -----------------------------------------------------------------------------
+
+
+def download_model(is_local) -> tuple[AutoProcessor, AutoModel]:
+    login(token=os.getenv("HF_TOKEN"), new_session=not is_local)
+
+    local_model_path = snapshot_download(
+        config["model_path"],
+        local_dir=Path("/") / PRETRAINED_VOLUME / config["model_path"] if not is_local else None,
+        ignore_patterns=["*.pt", "*.bin", "*.pth"],  # Ensure safetensors
+    )
+
+    torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
+    torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
+    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+
+    model = MllamaForConditionalGeneration.from_pretrained(
+        local_model_path,
+        local_files_only=True,
+        torch_dtype=dtype,
+        low_cpu_mem_usage=True,
+        attn_implementation="flash_attention_2",
+        device_map="auto",
+        quantization_config=BitsAndBytesConfig(
+            load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
+            bnb_4bit_compute_dtype=dtype,
+            bnb_4bit_quant_type=quant_type,
+            bnb_4bit_use_double_quant=use_double_quant,
+        ),
+        trust_remote_code=True,
+    )
+    model = torch.compile(model)
+
+    processor = AutoProcessor.from_pretrained(
+        local_model_path, local_files_only=True, trust_remote_code=True, use_fast=False
+    )
+
+    return processor, model
+
+
+def transform_img(image: Image, processor: AutoProcessor, device) -> torch.Tensor:
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {"type": "text", "text": config["prompt"]},
+            ],
+        }
+    ]
+    input_text = processor.apply_chat_template(messages, add_generation_prompt=True)
+    inputs = processor(image, input_text, return_tensors="pt").to(device)
+    return inputs
 
 
 def gen_labels(is_local: bool = False) -> None:
-    device = "cpu"
-    if torch.cuda.is_available():
-        device = "cuda"
-    # TODO: not supported by InternVL2
-    # elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    #     device = "mps"
-    world_size = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    torch_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
-    tokenizer, model = download_model(world_size, device, torch_dtype, is_local)
+    assert torch.cuda.is_available(), "GPU required"
+    processor, model = download_model(is_local)
 
     # check if images are present in src dir
     ## if not load_dataset
@@ -63,41 +150,28 @@ def gen_labels(is_local: bool = False) -> None:
         images = [Image.open(data_dir / f) for f in os.listdir(data_dir)]
 
     if is_local:
-        data_dir = ARTIFACT_PATH / data_dir
+        out_dir = ARTIFACT_PATH / save_dir
     else:
-        data_dir = Path("/") / DATA_VOLUME / data_dir
-    train_idxs = random.sample(range(len(images)), k=math.ceil(len(images) * (1 - val_split)))
+        out_dir = Path("/") / DATA_VOLUME / save_dir
+    train_idxs = random.sample(range(len(images)), k=math.ceil(len(images) * (1 - config["val_split"])))
 
-    for i in tqdm(range(0, len(images), SAMPLE_BS), desc="Processing batches"):
-        batch = images[i : i + SAMPLE_BS]
-        pixel_vals = [transform_img(image).to(torch_dtype).to(device) for image in batch]
-        num_patches_list = [pixel_vals[i].size(0) for i in range(len(pixel_vals))]
-        pixel_values = torch.cat(pixel_vals, dim=0)
+    for i in tqdm(range(0, len(images), desc="Processing images")):
+        inputs = transform_img(images[i], processor, model.device)
+        output = model.generate(**inputs, max_new_tokens=config["max_new_tokens"])
+        out = processor.decode(output[0])
 
-        generation_config = {"max_new_tokens": MAX_NEW_TOKENS, "temperature": TEMPERATURE}
-        questions = [f"<image>\n{PROMPT}"] * len(num_patches_list)
-        with torch.no_grad():
-            batch_out = model.batch_chat(
-                tokenizer,
-                pixel_values,
-                num_patches_list=num_patches_list,
-                questions=questions,
-                generation_config=generation_config,
-            )
-
-        for j, out in enumerate(batch_out):
-            try:
-                out = int(out)
-            except ValueError:
-                out = -1
-            pred = CLASSES[out] if out >= 0 else "error"
-            label_dir = data_dir / "train" / pred if i + j in train_idxs else data_dir / "validation" / pred
-            os.makedirs(label_dir, exist_ok=True)
-            img_path = label_dir / f"{i + j}.jpg"
-            image = batch["image"][j]
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-            image.save(img_path)
+        try:
+            out = int(out)
+        except ValueError:
+            out = -1
+        pred = CLASSES[out] if out >= 0 else "error"
+        label_dir = out_dir / "train" / pred if i in train_idxs else out_dir / "validation" / pred
+        os.makedirs(label_dir, exist_ok=True)
+        img_path = label_dir / f"{i}.jpg"
+        image = images[i]
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        image.save(img_path)
 
 
 if __name__ == "__main__":

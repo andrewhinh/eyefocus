@@ -12,7 +12,6 @@ dependencies = [
     "huggingface-hub[hf-transfer]>=0.24.7",
     "accelerate>=0.34.2",
     "timm>=1.0.9",
-    "ghapi>=1.0.6",
     "transformers>=4.45.0",
 ]
 

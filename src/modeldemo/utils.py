@@ -1,7 +1,5 @@
 import os
-import re
 from contextlib import suppress
-from datetime import datetime
 from functools import partial
 from pathlib import Path
 
@@ -14,38 +12,33 @@ from timm.models import create_model
 from timm.utils import set_jit_fuser, setup_default_logging
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TextIteratorStreamer
 
+login(token=os.getenv("HF_TOKEN"), new_session=False)
 
-def extract_dates(data: dict):
-    # Regular expression to match ISO 8601 date format
-    date_pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
+has_compile = hasattr(torch, "compile")
+torchcompile = None  # Enable compilation w/ specified backend (default: inductor).
 
-    dates = []
+# Device & distributed
+device = "cpu"  # Device (accelerator) to use.
+if torch.cuda.is_available():
+    device = "cuda"
+elif torch.mps.is_available():
+    device = "mps"
 
-    def extract_date_from_field(obj, field):
-        if field in obj and obj[field]:
-            match = re.search(date_pattern, obj[field])
-            if match:
-                date_str = match.group()
-                date_obj = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ")
-                dates.append(date_obj)
+has_flash_attn = False
+try:
+    import flash_attn  # noqa: F401
 
-    def extract_dates_recursive(obj):
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                if isinstance(value, str) and re.search(date_pattern, value):
-                    extract_date_from_field(obj, key)
-                elif isinstance(value, (dict, list)):
-                    extract_dates_recursive(value)
-        elif isinstance(obj, list):
-            for item in obj:
-                extract_dates_recursive(item)
+    has_flash_attn = True
+except ImportError:
+    pass
 
-    # Extract dates from the entire structure
-    extract_dates_recursive(data)
+has_bnb = False
+try:
+    import bitsandbytes  # noqa: F401
 
-    return dates
-
-
+    has_bnb = True
+except ImportError:
+    pass
 # -----------------------------------------------------------------------------
 
 
@@ -70,20 +63,9 @@ try:
 except ImportError:
     has_functorch = False
 
-has_compile = hasattr(torch, "compile")
-
-
-# Device & distributed
-device = "cpu"  # Device (accelerator) to use.
-if torch.cuda.is_available():
-    device = "cuda"
-elif torch.mps.is_available():
-    device = "mps"
 num_gpu = torch.cuda.device_count() if device == "cuda" else 0  # Number of GPUS to use
 amp = False  # use Native AMP for mixed precision training
 amp_dtype = "float16"  # lower precision AMP dtype (default: float16)
-
-login(token=os.getenv("HF_TOKEN"), new_session=False)
 
 # -----------------------------------------------------------------------------
 # Classifier
@@ -93,7 +75,6 @@ fuser = ""  # Select jit fuser. One of ('', 'te', 'old', 'nvfuser')
 
 ## scripting / codegen
 torchscript = False  # torch.jit.script the full model
-torchcompile = None  # Enable compilation w/ specified backend (default: inductor).
 aot_autograd = False  # Enable AOT Autograd support.
 
 ## Misc
@@ -113,9 +94,7 @@ class_config = {k: str(v) if isinstance(v, Path) else v for k, v in class_config
 def setup_classifier(model_name, verbose):  # noqa: C901
     setup_default_logging()
 
-    class_config["pretrained"] = class_config["pretrained"] or not class_config["checkpoint"]
-
-    if torch.cuda.is_available():
+    if class_config["device"] == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.benchmark = True
 
@@ -170,6 +149,51 @@ def setup_classifier(model_name, verbose):  # noqa: C901
 
 # -----------------------------------------------------------------------------
 
+# OCR
+
+
+def setup_ocr(model_path):
+    local_model_path = snapshot_download(
+        model_path,
+        ignore_patterns=["*.pt", "*.bin", "*.pth"],  # Ensure safetensors
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        local_model_path, local_files_only=True, trust_remote_code=True, use_fast=False
+    )
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+
+    torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
+    torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
+
+    model = AutoModelForCausalLM.from_pretrained(
+        local_model_path,
+        local_files_only=True,
+        torch_dtype=TORCH_DTYPE,
+        low_cpu_mem_usage=True,
+        use_safetensors=True,
+        pad_token_id=tokenizer.eos_token_id,
+        attn_implementation="flash_attention_2" if has_flash_attn else None,
+        device_map="auto",
+        quantization_config=BitsAndBytesConfig(
+            load_in_8bit=LOAD_IN_8BIT,
+            load_in_4bit=LOAD_IN_4BIT,
+            bnb_4bit_compute_dtype=TORCH_DTYPE,
+            bnb_4bit_quant_type=QUANT_TYPE,
+            bnb_4bit_use_double_quant=USE_DOUBLE_QUANT,
+        )
+        if has_bnb
+        else None,
+    )
+    assert has_compile, "A version of torch w/ torch.compile() is required for --compile, possibly a nightly."
+    torch._dynamo.reset()
+    model = torch.compile(model, backend=class_config["torchcompile"])
+
+    return streamer, tokenizer, model
+
+
+# -----------------------------------------------------------------------------
+
 # LLM
 TORCH_DTYPE = torch.bfloat16
 LOAD_IN_8BIT = False
@@ -179,8 +203,8 @@ USE_DOUBLE_QUANT = True
 
 SYSTEM_PROMPT = "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."
 MAX_NEW_TOKENS = 64
-TITLE_PROMPT = "Look at the dates of github events from {org} and how numerous they are: {dates}. Then write a short (2-5 words) title about focusing on work or stopping procrastination, noting that they should be as productive as {org}."
-MESSAGE_PROMPT = "Look at the dates of github events from {org} and how numerous they are: {dates}. Then write a short (max 15 words) message about focusing on work or stopping procrastination, noting that they should be as productive as {org}."
+TITLE_PROMPT = "Look at the user's screen text: {text}. Then write a short (2-5 words) title about focusing on work or stopping procrastination, noting the user's screen text."
+MESSAGE_PROMPT = "Look at the user's screen text: {text}. Then write a short (max 15 words) message about focusing on work or stopping procrastination, noting the user's screen text."
 
 
 def setup_llm(model_path):
@@ -202,7 +226,7 @@ def setup_llm(model_path):
         local_files_only=True,
         torch_dtype=TORCH_DTYPE,
         low_cpu_mem_usage=True,
-        attn_implementation="flash_attention_2" if torch.cuda.is_available() else None,
+        attn_implementation="flash_attention_2" if has_flash_attn else None,
         device_map="auto",
         quantization_config=BitsAndBytesConfig(
             load_in_8bit=LOAD_IN_8BIT,
@@ -211,10 +235,12 @@ def setup_llm(model_path):
             bnb_4bit_quant_type=QUANT_TYPE,
             bnb_4bit_use_double_quant=USE_DOUBLE_QUANT,
         )
-        if torch.cuda.is_available()
+        if has_bnb
         else None,
     )
-    model = torch.compile(model)
+    assert has_compile, "A version of torch w/ torch.compile() is required for --compile, possibly a nightly."
+    torch._dynamo.reset()
+    model = torch.compile(model, backend=class_config["torchcompile"])
 
     def transforms(prompt):
         messages = [

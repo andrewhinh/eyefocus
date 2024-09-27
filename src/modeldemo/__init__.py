@@ -1,3 +1,4 @@
+import tempfile
 from notifypy import Notify
 import time
 
@@ -8,8 +9,6 @@ from PIL import Image
 import mss
 import traceback
 from threading import Thread
-from ghapi.all import GhApi
-
 
 from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -23,18 +22,16 @@ from .utils import (
     setup_classifier,
     class_config,
     setup_llm,
-    extract_dates,
+    setup_ocr,
 )
-
-api = GhApi()
-per_page = 30
-n_pages = 8
-org = "EurekaLabsAI"
 
 # -----------------------------------------------------------------------------
 
 # Classifier
 CLASSIFIER = "hf_hub:andrewhinh/resnet152-224-Screenspot"
+
+# OCR
+OCR = "ucaslcl/GOT-OCR2_0"
 
 # LLM
 LLM = "Qwen/Qwen2.5-0.5B-Instruct"
@@ -93,6 +90,39 @@ def classify(model, transforms, amp_autocast, image: Image):
     return preds[0]
 
 
+def read_screen(streamer, tokenizer, model, image: Image):
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        image.save(f.name)
+        image_file = Path(f.name)
+
+        t0 = time.time()
+        num_tokens = 0
+        thread = Thread(
+            target=model.chat,
+            kwargs={
+                "tokenizer": tokenizer,
+                "image_file": image_file,
+                "ocr_type": "ocr",
+                "max_new_tokens": MAX_NEW_TOKENS,
+                "streamer": streamer,
+            },
+        )
+        thread.start()
+
+        generated_text = ""
+        for new_text in streamer:
+            num_tokens += 1
+            generated_text += new_text
+            if state["verbose"]:
+                print(new_text, end="", flush=True)
+        t1 = time.time()
+        if state["verbose"]:
+            print()
+            print(f"Tok/sec: {num_tokens / (t1 - t0):.2f}")
+
+        return generated_text
+
+
 def generate(streamer, llm_tsfm, llm, prompt) -> str:
     t0 = time.time()
     num_tokens = 0
@@ -132,11 +162,14 @@ def run() -> None:
         ) as progress:
             progress.add_task("Downloading models...", total=None)
             cls_tsfm, amp_autocast, classifier = setup_classifier(CLASSIFIER, state["verbose"])
-            streamer, llm_tsfm, llm = setup_llm(LLM)
+            ocr_stream, ocr_tok, ocr = setup_ocr(OCR)
+            llm_stream, llm_tsfm, llm = setup_llm(LLM)
     else:
         cls_tsfm, amp_autocast, classifier = setup_classifier(CLASSIFIER, state["verbose"])
-        streamer, llm_tsfm, llm = setup_llm(LLM)
+        ocr_stream, ocr_tok, ocr = setup_ocr(OCR)
+        llm_stream, llm_tsfm, llm = setup_llm(LLM)
     classifier.eval()
+    ocr.eval()
     llm.eval()
 
     while True:
@@ -144,14 +177,9 @@ def run() -> None:
         pred = classify(classifier, cls_tsfm, amp_autocast, img)
 
         if pred == "distracted":
-            data = api.list_events_parallel(per_page=per_page, n_pages=n_pages, org=org)
-            dates = extract_dates(data)
-            notification.title = generate(
-                streamer, llm_tsfm, llm, TITLE_PROMPT.format(org=org, dates=",".join(map(str, dates)))
-            )
-            notification.message = generate(
-                streamer, llm_tsfm, llm, MESSAGE_PROMPT.format(org=org, dates=",".join(map(str, dates)))
-            )
+            screen_text = read_screen(ocr_stream, ocr_tok, ocr, img)
+            notification.title = generate(llm_stream, llm_tsfm, llm, TITLE_PROMPT.format(text=screen_text))
+            notification.message = generate(llm_stream, llm_tsfm, llm, MESSAGE_PROMPT.format(text=screen_text))
             notification.send(block=False)
             time.sleep(NOTIFICATION_INTERVAL)
 

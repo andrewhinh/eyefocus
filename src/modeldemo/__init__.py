@@ -1,6 +1,7 @@
-import tempfile
 from notifypy import Notify
 import time
+import base64
+import io
 
 from pathlib import Path
 
@@ -8,7 +9,6 @@ import torch
 from PIL import Image
 import mss
 import traceback
-from threading import Thread
 
 from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -16,13 +16,13 @@ import typer
 from typing_extensions import Annotated
 
 from .utils import (
-    MAX_NEW_TOKENS,
     TITLE_PROMPT,
     MESSAGE_PROMPT,
     setup_classifier,
     class_config,
-    setup_llm,
-    setup_ocr,
+    setup_gguf,
+    OCR_PROMPT,
+    SYSTEM_PROMPT,
 )
 
 # -----------------------------------------------------------------------------
@@ -30,15 +30,38 @@ from .utils import (
 # Classifier
 CLASSIFIER = "hf_hub:andrewhinh/resnet152-224-Screenspot"
 
-# OCR
-OCR = "ucaslcl/GOT-OCR2_0"
+# MM-LLM
+MM_LLM = "vikhyatk/moondream2"
+MM_LLM_CLIP = "moondream2-mmproj-f16.gguf"
+MM_LLM_GGUF = "moondream2-text-model-f16.gguf"
+MM_LLM_CTX = 4096  # img + text tokens
+MM_LLM_FORMAT = (
+    {
+        "type": "json_object",
+        "schema": {
+            "type": "object",
+            "properties": {"screen_text": {"type": "string"}},
+            "required": ["screen_text"],
+        },
+    },
+)
 
 # LLM
-LLM = "Qwen/Qwen2.5-0.5B-Instruct"
-
+LLM = "hugging-quants/Llama-3.2-1B-Instruct-Q4_K_M-GGUF"
+LLM_GGUF = "llama-3.2-1b-instruct-q4_k_m.gguf"
+LLM_CTX = 1024  # text tokens
+LLM_FORMAT = (
+    {
+        "type": "json_object",
+        "schema": {
+            "type": "object",
+            "properties": {"title": {"type": "string"}, "message": {"type": "string"}},
+            "required": ["title", "message"],
+        },
+    },
+)
 
 # -----------------------------------------------------------------------------
-
 
 # Typer CLI
 app = typer.Typer(
@@ -69,6 +92,13 @@ def capture_screenshot() -> Image:
         return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
 
 
+def image_to_base64_data_uri(image):
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    base64_data = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    return f"data:image/png;base64,{base64_data}"
+
+
 def classify(model, transforms, amp_autocast, image: Image):
     t0 = time.time()
 
@@ -90,58 +120,36 @@ def classify(model, transforms, amp_autocast, image: Image):
     return preds[0]
 
 
-def read_screen(streamer, tokenizer, model, image: Image):
-    with tempfile.NamedTemporaryFile(suffix=".png") as f:
-        image.save(f.name)
-        image_file = Path(f.name)
-
-        t0 = time.time()
-        num_tokens = 0
-        thread = Thread(
-            target=model.chat,
-            kwargs={
-                "tokenizer": tokenizer,
-                "image_file": image_file,
-                "ocr_type": "ocr",
-                "max_new_tokens": MAX_NEW_TOKENS,
-                "streamer": streamer,
-            },
-        )
-        thread.start()
-
-        generated_text = ""
-        for new_text in streamer:
-            num_tokens += 1
-            generated_text += new_text
-            if state["verbose"]:
-                print(new_text, end="", flush=True)
-        t1 = time.time()
-        if state["verbose"]:
-            print()
-            print(f"Tok/sec: {num_tokens / (t1 - t0):.2f}")
-
-        return generated_text
-
-
-def generate(streamer, llm_tsfm, llm, prompt) -> str:
+def generate(llm, prompt, response_format, image=None) -> str:
     t0 = time.time()
     num_tokens = 0
-    thread = Thread(
-        target=llm.generate,
-        kwargs={
-            **llm_tsfm(prompt),
-            "max_new_tokens": MAX_NEW_TOKENS,
-            "streamer": streamer,
-        },
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": [{"type": "text", "text": prompt}]},
+    ]
+    if image:
+        messages[1]["content"].append({"type": "image_url", "image_url": {"url": image_to_base64_data_uri(image)}})
+
+    streamer = llm.create_chat_completion(
+        messages=messages,
+        response_format=response_format,
+        stream=True,
     )
-    thread.start()
 
     generated_text = ""
-    for new_text in streamer:
-        num_tokens += 1
-        generated_text += new_text
-        if state["verbose"]:
-            print(new_text, end="", flush=True)
+    for chunk in streamer:
+        delta = chunk["choices"][0]["delta"]
+        if "role" in delta:
+            continue
+        elif "content" in delta:
+            num_tokens += 1
+            tokens = delta["content"].split()
+            for token in tokens:
+                generated_text += token
+                if state["verbose"]:
+                    print(token, end="", flush=True)
+
     t1 = time.time()
     if state["verbose"]:
         print()
@@ -155,6 +163,7 @@ def generate(streamer, llm_tsfm, llm, prompt) -> str:
 
 # Typer CLI
 def run() -> None:
+    ## load models
     if state["verbose"]:
         print("Press Ctrl+C to stop at any time.")
         with Progress(
@@ -162,24 +171,23 @@ def run() -> None:
         ) as progress:
             progress.add_task("Downloading models...", total=None)
             cls_tsfm, amp_autocast, classifier = setup_classifier(CLASSIFIER, state["verbose"])
-            ocr_stream, ocr_tok, ocr = setup_ocr(OCR)
-            llm_stream, llm_tsfm, llm = setup_llm(LLM)
+            ocr = setup_gguf(MM_LLM, MM_LLM_GGUF, MM_LLM_CTX, MM_LLM_CLIP, state["verbose"])
+            llm = setup_gguf(LLM, LLM_GGUF, LLM_CTX, verbose=state["verbose"])
     else:
         cls_tsfm, amp_autocast, classifier = setup_classifier(CLASSIFIER, state["verbose"])
-        ocr_stream, ocr_tok, ocr = setup_ocr(OCR)
-        llm_stream, llm_tsfm, llm = setup_llm(LLM)
+        ocr = setup_gguf(MM_LLM, MM_LLM_GGUF, MM_LLM_CTX, MM_LLM_CLIP, state["verbose"])
+        llm = setup_gguf(LLM, LLM_GGUF, LLM_CTX, verbose=state["verbose"])
     classifier.eval()
-    ocr.eval()
-    llm.eval()
 
+    ## main loop
     while True:
         img = capture_screenshot()
         pred = classify(classifier, cls_tsfm, amp_autocast, img)
 
         if pred == "distracted":
-            screen_text = read_screen(ocr_stream, ocr_tok, ocr, img)
-            notification.title = generate(llm_stream, llm_tsfm, llm, TITLE_PROMPT.format(text=screen_text))
-            notification.message = generate(llm_stream, llm_tsfm, llm, MESSAGE_PROMPT.format(text=screen_text))
+            screen_text = generate(ocr, OCR_PROMPT, MM_LLM_FORMAT, img)
+            notification.title = generate(llm, TITLE_PROMPT.format(description=screen_text), LLM_FORMAT)
+            notification.message = generate(llm, MESSAGE_PROMPT.format(description=screen_text), LLM_FORMAT)
             notification.send(block=False)
             time.sleep(NOTIFICATION_INTERVAL)
 

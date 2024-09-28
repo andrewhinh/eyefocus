@@ -4,10 +4,11 @@ from functools import partial
 from pathlib import Path
 
 import torch
-from huggingface_hub import login, snapshot_download
+from huggingface_hub import hf_hub_download, login
 from llama_cpp import Llama
-from llama_cpp.llama_chat_format import NanoLlavaChatHandler
-from llama_cpp.llama_speculative import LlamaPromptLookupDecoding
+from llama_cpp.llama_chat_format import MoondreamChatHandler, NanoLlavaChatHandler
+
+# from llama_cpp.llama_speculative import LlamaPromptLookupDecoding  # not used because models are already small
 from rich import print
 from timm.data import create_transform, resolve_data_config
 from timm.layers import apply_test_time_pool
@@ -15,13 +16,15 @@ from timm.models import create_model
 from timm.utils import set_jit_fuser, setup_default_logging
 
 login(token=os.getenv("HF_TOKEN"), new_session=False)
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
-# Device & distributed
 device = "cpu"  # Device (accelerator) to use.
-# if torch.cuda.is_available():
-#     device = "cuda"
-if torch.backends.mps.is_available():
+if torch.cuda.is_available():
+    device = "cuda"
+elif torch.backends.mps.is_available():
     device = "mps"
+
 # -----------------------------------------------------------------------------
 
 # Classifier imports
@@ -59,15 +62,16 @@ fuser = ""  # Select jit fuser. One of ('', 'te', 'old', 'nvfuser')
 torchscript = False  # torch.jit.script the full model
 aot_autograd = False  # Enable AOT Autograd support.
 
-## Misc
-test_pool = False  # enable test time pool
-topk = 1  # Top-k
+## Device & distributed
 num_gpu = torch.cuda.device_count() if device == "cuda" else 0  # Number of GPUS to use
 amp = False  # use Native AMP for mixed precision training
 amp_dtype = "float16"  # lower precision AMP dtype (default: float16)
 has_compile = hasattr(torch, "compile")
 torchcompile = None  # Enable compilation w/ specified backend (default: inductor).
 
+## Misc
+test_pool = False  # enable test time pool
+topk = 1  # Top-k
 
 class_config_keys = [
     k
@@ -147,29 +151,31 @@ except ImportError:
     pass
 
 SYSTEM_PROMPT = "You are a helpful assistant."
-OCR_PROMPT = "Look at the user's screen text: {text}. Then write a description of what the user has open."
+OCR_PROMPT = "Look at the user's screen text: {text}. Then write a description of what applications the user has open."
 TITLE_PROMPT = "Here's a description of the user's screen: {description}. Then write a short (2-5 words) title about focusing on work or stopping procrastination, noting the description."
 MESSAGE_PROMPT = "Here's a description of the user's screen: {description}. Then write a short (max 15 words) message about focusing on work or stopping procrastination, noting the description."
 
 
 def setup_gguf(model_path, gguf_model_path, n_ctx, clip_model_path=None, verbose=False):
-    local_model_path = snapshot_download(
-        model_path,
-        ignore_patterns=["*.pt", "*.bin", "*.pth"],  # Ensure safetensors
-    )
+    chat_handler = None
+    if clip_model_path:
+        local_clip_model_path = hf_hub_download(model_path, clip_model_path)
+        if model_path == "vikhyatk/moondream2":
+            chat_handler = MoondreamChatHandler(clip_model_path=local_clip_model_path, verbose=verbose)
+        elif model_path == "abetlen/nanollava-gguf":
+            chat_handler = NanoLlavaChatHandler(clip_model_path=local_clip_model_path, verbose=verbose)
 
+    local_model_path = hf_hub_download(model_path, gguf_model_path)
     llm = Llama(
-        model_path=local_model_path + "/" + gguf_model_path,
-        chat_handler=NanoLlavaChatHandler(clip_model_path=local_model_path + "/" + clip_model_path, verbose=verbose)
-        if clip_model_path
-        else None,
+        model_path=local_model_path,
+        chat_handler=chat_handler,
         n_ctx=n_ctx,
         n_gpu_layers=-1 if device == "cuda" else 0,
         flash_attn=has_flash_attn,
         verbose=verbose,
-        draft_model=LlamaPromptLookupDecoding(
-            num_pred_tokens=10 if device == "cuda" else 2
-        ),  # 10 tokens on GPU, 2 tokens on CPU
+        # draft_model=LlamaPromptLookupDecoding(
+        #     num_pred_tokens=10 if device == "cuda" else 2
+        # ),  # 10 tokens on GPU, 2 tokens on CPU
     )
 
     return llm

@@ -1,7 +1,9 @@
+from secrets import token_urlsafe
 from notifypy import Notify
 import time
 import base64
 import io
+import json
 
 from pathlib import Path
 
@@ -31,35 +33,39 @@ from .utils import (
 CLASSIFIER = "hf_hub:andrewhinh/resnet152-224-Screenspot"
 
 # MM-LLM
-MM_LLM = "vikhyatk/moondream2"
-MM_LLM_CLIP = "moondream2-mmproj-f16.gguf"
-MM_LLM_GGUF = "moondream2-text-model-f16.gguf"
+MM_LLM = "abetlen/nanollava-gguf"
+MM_LLM_CLIP = "nanollava-mmproj-f16.gguf"
+MM_LLM_GGUF = "nanollava-text-model-f16.gguf"
 MM_LLM_CTX = 4096  # img + text tokens
-MM_LLM_FORMAT = (
-    {
-        "type": "json_object",
-        "schema": {
-            "type": "object",
-            "properties": {"screen_text": {"type": "string"}},
-            "required": ["screen_text"],
-        },
+MM_LLM_FORMAT = {
+    "type": "json_object",
+    "schema": {
+        "type": "object",
+        "properties": {"screen_text": {"type": "string"}},
+        "required": ["screen_text"],
     },
-)
+}
 
 # LLM
 LLM = "hugging-quants/Llama-3.2-1B-Instruct-Q4_K_M-GGUF"
 LLM_GGUF = "llama-3.2-1b-instruct-q4_k_m.gguf"
 LLM_CTX = 1024  # text tokens
-LLM_FORMAT = (
-    {
-        "type": "json_object",
-        "schema": {
-            "type": "object",
-            "properties": {"title": {"type": "string"}, "message": {"type": "string"}},
-            "required": ["title", "message"],
-        },
+LLM_TITLE_FORMAT = {
+    "type": "json_object",
+    "schema": {
+        "type": "object",
+        "properties": {"title": {"type": "string"}},
+        "required": ["title"],
     },
-)
+}
+LLM_MESSAGE_FORMAT = {
+    "type": "json_object",
+    "schema": {
+        "type": "object",
+        "properties": {"message": {"type": "string"}},
+        "required": ["message"],
+    },
+}
 
 # -----------------------------------------------------------------------------
 
@@ -131,24 +137,12 @@ def generate(llm, prompt, response_format, image=None) -> str:
     if image:
         messages[1]["content"].append({"type": "image_url", "image_url": {"url": image_to_base64_data_uri(image)}})
 
-    streamer = llm.create_chat_completion(
+    generated_text = llm.create_chat_completion(
         messages=messages,
         response_format=response_format,
-        stream=True,
     )
-
-    generated_text = ""
-    for chunk in streamer:
-        delta = chunk["choices"][0]["delta"]
-        if "role" in delta:
-            continue
-        elif "content" in delta:
-            num_tokens += 1
-            tokens = delta["content"].split()
-            for token in tokens:
-                generated_text += token
-                if state["verbose"]:
-                    print(token, end="", flush=True)
+    if state["verbose"]:
+        print(f"Generated text: {generated_text}")
 
     t1 = time.time()
     if state["verbose"]:
@@ -185,9 +179,33 @@ def run() -> None:
         pred = classify(classifier, cls_tsfm, amp_autocast, img)
 
         if pred == "distracted":
-            screen_text = generate(ocr, OCR_PROMPT, MM_LLM_FORMAT, img)
-            notification.title = generate(llm, TITLE_PROMPT.format(description=screen_text), LLM_FORMAT)
-            notification.message = generate(llm, MESSAGE_PROMPT.format(description=screen_text), LLM_FORMAT)
+            ocr_out = generate(ocr, OCR_PROMPT, MM_LLM_FORMAT, img)
+            # free memory
+            ocr.close()
+            ocr.chat_handler._exit_stack.close()  # https://github.com/abetlen/llama-cpp-python/issues/1746
+            try:
+                ocr_out = json.loads(ocr_out)
+                screen_text = ocr_out["screen_text"]
+            except KeyError:
+                if state["verbose"]:
+                    print("No screen text detected.")
+                continue
+
+            title_out = generate(llm, TITLE_PROMPT.format(description=screen_text), LLM_TITLE_FORMAT)
+            message_out = generate(llm, MESSAGE_PROMPT.format(description=screen_text), LLM_MESSAGE_FORMAT)
+            llm.close()
+            try:
+                title_out = json.loads(title_out)
+                message_out = json.loads(message_out)
+                title = title_out["title"]
+                message = message_out["message"]
+            except KeyError:
+                if state["verbose"]:
+                    print("No title or message generated.")
+                continue
+
+            notification.title = title
+            notification.message = message
             notification.send(block=False)
             time.sleep(NOTIFICATION_INTERVAL)
 

@@ -470,7 +470,7 @@ wheels = [
 
 [[package]]
 name = "llama-cpp-python"
-version = "0.3.0"
+version = "0.2.90"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "diskcache" },
@@ -478,7 +478,7 @@ dependencies = [
     { name = "numpy" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/f9/78a2bcc4d7a52efa1b7c446644ce60c46322c3d56919a2c62d58d9732aef/llama_cpp_python-0.3.0.tar.gz", hash = "sha256:ae328375acf55f137dfe9c990d1661cc5b7c10aca679f09a2da9645c1a5dfaac", size = 63897013 }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/19/89836022affc1bf470e2485e28872b489254a66fe587155edba731a07112/llama_cpp_python-0.2.90.tar.gz", hash = "sha256:419b041c62dbdb9f7e67883a6ef2f247d583d08417058776be0bff05b4ec9e3d", size = 63762953 }
 
 [[package]]
 name = "loguru"
@@ -589,7 +589,7 @@ requires-dist = [
     { name = "datasets", marker = "extra == 'ft'", specifier = ">=3.0.0" },
     { name = "flash-attn", marker = "extra == 'gpu'", specifier = ">=2.6.3" },
     { name = "huggingface-hub", extras = ["hf-transfer"], specifier = ">=0.24.7" },
-    { name = "llama-cpp-python", specifier = ">=0.3.0" },
+    { name = "llama-cpp-python", specifier = "==0.2.90" },
     { name = "modal", marker = "extra == 'ft'", specifier = ">=0.64.128" },
     { name = "mss", specifier = ">=9.0.2" },
     { name = "notify-py", specifier = ">=0.3.43" },

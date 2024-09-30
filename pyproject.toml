@@ -19,11 +19,14 @@ modeldemo = "modeldemo:app"
 
 [project.optional-dependencies]
 ft = [
+    "accelerate>=0.34.2",
+    "bitsandbytes>=0.44.0",
     "datasets>=3.0.0",
     "modal>=0.64.128",
     "python-dotenv>=1.0.1",
     "sentencepiece>=0.2.0",
     "term-image>=0.7.2",
+    "transformers>=4.45.1",
     "wandb>=0.18.1",
 ]
 gpu = [

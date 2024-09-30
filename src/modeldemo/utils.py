@@ -150,11 +150,6 @@ try:
 except ImportError:
     pass
 
-SYSTEM_PROMPT = "You are a helpful assistant."
-OCR_PROMPT = "Look at the user's screen text: {text}. Then write a description of what applications the user has open."
-TITLE_PROMPT = "Here's a description of the user's screen: {description}. Then write a short (2-5 words) title about focusing on work or stopping procrastination, noting the description."
-MESSAGE_PROMPT = "Here's a description of the user's screen: {description}. Then write a short (max 15 words) message about focusing on work or stopping procrastination, noting the description."
-
 
 def setup_gguf(model_path, gguf_model_path, n_ctx, clip_model_path=None, verbose=False):
     chat_handler = None

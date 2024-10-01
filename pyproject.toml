@@ -32,6 +32,9 @@ ft = [
 gpu = [
     "flash-attn>=2.6.3",
 ]
+fe = [
+    "python-fasthtml>=0.6.9",
+]
 
 [build-system]
 requires = ["hatchling"]

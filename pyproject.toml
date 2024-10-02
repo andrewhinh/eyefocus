@@ -34,6 +34,7 @@ gpu = [
 ]
 fe = [
     "python-fasthtml>=0.6.9",
+    "simpleicons>=7.21.0",
 ]
 
 [build-system]

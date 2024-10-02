@@ -3,49 +3,37 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fasthtml import common as fh
+from simpleicons.icons import si_github, si_pypi
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+parent_path = Path(__file__).parent.parent
+
+load_dotenv(parent_path / ".env")
 
 tlink = fh.Script(src="https://cdn.tailwindcss.com")
 hjs = fh.HighlightJS(langs=["python", "javascript", "html", "css"])
 fasthtml_app, rt = fh.fast_app(
     ws_hdr=True, hdrs=[tlink, hjs], live=os.getenv("LIVE", False), debug=os.getenv("DEBUG", False)
 )
-app_name = "Modeldemo"
 fh.setup_toasts(fasthtml_app)
-root_path = "/frontend"
+root_path = parent_path / "frontend"
 
 
 # Components
-def github_icon():
-    return fh.A(
-        fh.Img(
-            src=f"{root_path}/assets/gh.svg",
-            alt="PyPI",
-            width="50",
-            height="50",
-            viewBox="0 0 15 15",
-            fill="none",
-            cls="rounded bg-zinc-700 hover:bg-zinc-500",
-        ),
-        href="https://github.com/andrewhinh/modeldemo",
-        target="_blank",
-    )
-
-
-def pypi_icon():
-    return fh.A(
-        fh.Img(
-            src=f"{root_path}/assets/pypi.svg",
-            alt="PyPI",
-            width="50",
-            height="50",
-            viewBox="0 0 15 15",
-            fill="none",
-            cls="rounded bg-zinc-700 hover:bg-zinc-500",
-        ),
-        href="https://pypi.org/project/modeldemo/",
-        target="_blank",
+def icon(
+    svg,
+    width="50",
+    height="50",
+    viewBox="0 0 15 15",
+    fill="none",
+    cls="rounded p-0.5 border border-blue-300 hover:border-blue-100 hover:bg-zinc-700 cursor-pointer",
+):
+    return fh.Svg(
+        fh.NotStr(svg),
+        width=width,
+        height=height,
+        viewBox=viewBox,
+        fill=fill,
+        cls=cls,
     )
 
 
@@ -53,19 +41,27 @@ def pypi_icon():
 def main_content():
     return fh.Div(
         fh.H1("Modeldemo", cls="text-6xl font-bold text-blue-300"),
-        fh.P("Stay focused.", cls="text-xl text-red-500"),
+        fh.P("Stay focused.", cls="text-2xl text-red-500"),
         fh.Button(
             "uv add modeldemo",
             onclick="navigator.clipboard.writeText(this.innerText);",
             hx_post="/toast",
             hx_target="#toast-container",
             hx_swap="outerHTML",
-            cls="text-blue-300 p-4 rounded text-md hover:bg-zinc-700 hover:text-blue-100 cursor-pointer",
+            cls="rounded p-4 text-blue-300 text-md border border-blue-300 hover:border-blue-100 hover:bg-zinc-700 hover:text-blue-100 cursor-pointer",
             title="Click to copy",
         ),
         fh.Div(
-            github_icon(),
-            pypi_icon(),
+            fh.A(
+                icon(si_github.svg),
+                href="https://github.com/andrewhinh/modeldemo",
+                target="_blank",
+            ),
+            fh.A(
+                icon(si_pypi.svg),
+                href="https://pypi.org/project/modeldemo/",
+                target="_blank",
+            ),
             cls="flex gap-8",
         ),
         cls="flex flex-col justify-center items-center gap-8 flex-1",
@@ -107,13 +103,14 @@ async def toast(session):
 
 # Serving
 if __name__ == "__main__":
-    fh.serve(app=app_name)
+    fh.serve(app="fasthtml_app")
 
 
 ## Modal
 from modal import App, Image, asgi_app
 
 image = Image.debian_slim(python_version="3.12").pip_install("python-fasthtml")
+app_name = "Modeldemo"
 app = App(app_name)
 
 

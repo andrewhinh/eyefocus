@@ -704,6 +704,7 @@ dependencies = [
 [package.optional-dependencies]
 fe = [
     { name = "python-fasthtml" },
+    { name = "simpleicons" },
 ]
 ft = [
     { name = "accelerate" },
@@ -735,6 +736,7 @@ requires-dist = [
     { name = "python-dotenv", marker = "extra == 'ft'", specifier = ">=1.0.1" },
     { name = "python-fasthtml", marker = "extra == 'fe'", specifier = ">=0.6.9" },
     { name = "sentencepiece", marker = "extra == 'ft'", specifier = ">=0.2.0" },
+    { name = "simpleicons", marker = "extra == 'fe'", specifier = ">=7.21.0" },
     { name = "term-image", marker = "extra == 'ft'", specifier = ">=0.7.2" },
     { name = "timm", specifier = ">=1.0.9" },
     { name = "transformers", marker = "extra == 'ft'", specifier = ">=4.45.1" },
@@ -1460,6 +1462,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5f/db/669ca14166814da187b3087b908ca924cf83f5b504fe23b3859a3ef67d4f/sigtools-4.0.1.tar.gz", hash = "sha256:4b8e135a9cd4d2ea00da670c093372d74e672ba3abb87f4c98d8e73dea54445c", size = 71910 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1f/91/853dbf6ec096197dba9cd5fd0c836c5fc19142038b7db60ebe6332b1bab1/sigtools-4.0.1-py2.py3-none-any.whl", hash = "sha256:d216b4cf920bbab0fce636ddc429ed8463a5b533d9e1492acb45a2a1bc36ac6c", size = 76419 },
+]
+
+[[package]]
+name = "simpleicons"
+version = "7.21.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/3f/e8ba6586158e1e6c1b3fe760f27442aeccd486ac091ffa79f7acfbf997ec/simpleicons-7.21.0.tar.gz", hash = "sha256:5b6cad4610d8dc76e9b163d93ff0d18ef31e6a6201d30a69f33333108267c375", size = 3485396 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/40/fe3e2439a7b8e00e0c397983187b791d8a14adc9946f204f880558af8765/simpleicons-7.21.0-py3-none-any.whl", hash = "sha256:f7fc8dad1646c76a81d925550ad601a1d02817c814f4443b2e9addf573b9f631", size = 3502186 },
 ]
 
 [[package]]

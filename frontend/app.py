@@ -5,17 +5,29 @@ from dotenv import load_dotenv
 from fasthtml import common as fh
 from simpleicons.icons import si_github, si_pypi
 
-parent_path = Path(__file__).parent.parent
+root_path = Path(__file__).parent.parent
+app_name = "Modeldemo"
 
-load_dotenv(parent_path / ".env")
+load_dotenv(root_path / ".env")
 
-tlink = fh.Script(src="https://cdn.tailwindcss.com")
-hjs = fh.HighlightJS(langs=["python", "javascript", "html", "css"])
 fasthtml_app, rt = fh.fast_app(
-    ws_hdr=True, hdrs=[tlink, hjs], live=os.getenv("LIVE", False), debug=os.getenv("DEBUG", False)
+    ws_hdr=True,
+    hdrs=[
+        fh.Script(src="https://cdn.tailwindcss.com"),
+        fh.HighlightJS(langs=["python", "javascript", "html", "css"]),
+        fh.Link(rel="icon", href="/favicon.ico", type="image/x-icon"),
+    ],
+    live=os.getenv("LIVE", False),
+    debug=os.getenv("DEBUG", False),
 )
 fh.setup_toasts(fasthtml_app)
-root_path = parent_path / "frontend"
+
+
+@rt("/{fname:path}.{ext:static}")
+async def static_files(fname: str, ext: str):
+    static_file_path = root_path / "frontend" / f"{fname}.{ext}"
+    if static_file_path.exists():
+        return fh.FileResponse(static_file_path)
 
 
 # Components
@@ -39,7 +51,7 @@ def icon(
 
 # Layout
 def main_content():
-    return fh.Div(
+    return fh.Main(
         fh.H1("Modeldemo", cls="text-6xl font-bold text-blue-300"),
         fh.P("Stay focused.", cls="text-2xl text-red-500"),
         fh.Button(
@@ -73,7 +85,7 @@ def toast_container():
 
 
 def footer():
-    return fh.Div(
+    return fh.Footer(
         fh.P("Made by", cls="text-white text-lg"),
         fh.A(
             "Andrew Hinh",
@@ -87,7 +99,7 @@ def footer():
 # Routes
 @rt("/")
 async def get():
-    return fh.Div(
+    return fh.Title(app_name), fh.Div(
         main_content(),
         toast_container(),
         footer(),
@@ -109,8 +121,7 @@ if __name__ == "__main__":
 ## Modal
 from modal import App, Image, asgi_app
 
-image = Image.debian_slim(python_version="3.12").pip_install("python-fasthtml")
-app_name = "Modeldemo"
+image = Image.debian_slim(python_version="3.12").pip_install("python-fasthtml", "simpleicons")
 app = App(app_name)
 
 

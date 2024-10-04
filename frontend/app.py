@@ -6,7 +6,7 @@ from fasthtml import common as fh
 from simpleicons.icons import si_github, si_pypi
 
 root_path = Path(__file__).parent.parent
-app_name = "Modeldemo"
+app_name = "Eyefocus"
 
 load_dotenv(root_path / ".env")
 
@@ -52,10 +52,10 @@ def icon(
 # Layout
 def main_content():
     return fh.Main(
-        fh.H1("Modeldemo", cls="text-6xl font-bold text-blue-300"),
+        fh.H1(app_name, cls="text-6xl font-bold text-blue-300"),
         fh.P("Stay focused.", cls="text-2xl text-red-500"),
         fh.Button(
-            "uv add modeldemo",
+            "uv add eyefocus",
             onclick="navigator.clipboard.writeText(this.innerText);",
             hx_post="/toast",
             hx_target="#toast-container",
@@ -66,12 +66,12 @@ def main_content():
         fh.Div(
             fh.A(
                 icon(si_github.svg),
-                href="https://github.com/andrewhinh/modeldemo",
+                href="https://github.com/andrewhinh/eyefocus",
                 target="_blank",
             ),
             fh.A(
                 icon(si_pypi.svg),
-                href="https://pypi.org/project/modeldemo/",
+                href="https://pypi.org/project/eyefocus/",
                 target="_blank",
             ),
             cls="flex gap-8",

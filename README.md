@@ -1,4 +1,4 @@
-# modeldemo
+# eyefocus
 
 **Stay focused!**
 
@@ -29,20 +29,19 @@ modal setup
 
 ```bash
 .
-├── r&d              # config, frontend, model FT.
-├── src
-├──── modeldemo
-├────── __init__.py  # main code.
+├── frontend            # landing page.
+├── ft                  # classifier training.
+├── src                 # pypi package.
 ```
 
 ## Development
 
-### CLI
+### PyPI
 
-Test:
+Run locally:
 
 ```bash
-uv run modeldemo -vv
+uv run eyefocus -vv
 ```
 
 Build the package:
@@ -60,7 +59,7 @@ uvx twine upload dist/*
 Test the uploaded package:
 
 ```bash
-uv run --with modeldemo --no-project -- modeldemo -vv
+uv run --with eyefocus --no-project -- eyefocus -vv
 ```
 
 ### Frontend
@@ -68,67 +67,43 @@ uv run --with modeldemo --no-project -- modeldemo -vv
 Run the app:
 
 ```bash
-uv run src/modeldemo/frontend/main.py
+uv run frontend/app.py
+```
+
+Deploy on Modal:
+
+```bash
+uv run modal run frontend/app.py
 ```
 
 ### Training
 
-Download the data and model:
+Optionally, manually collect screenshots:
 
 ```bash
-uv run src/modeldemo/training/etl.py
+uv run ft/collect.py
+```
+
+Run ETL on HF dataset (or collected screenshots if available):
+
+```bash
+uv run ft/etl.py
 ```
 
 or
 
 ```bash
-modal run src/modeldemo/training/etl.py
-```
-
-Run a hyperparameter sweep:
-
-```bash
-uv run src/modeldemo/training/sweep.py
-```
-
-or
-
-```bash
-modal run src/modeldemo/training/sweep.py
+uv run modal run ft/etl.py
 ```
 
 Train the model:
 
 ```bash
-torchrun --standalone --nproc_per_node=<n-gpus> src/modeldemo/training/train.py
+uv run torchrun --standalone --nproc_per_node=<n-gpus> ft/train.py
 ```
 
 or
 
 ```bash
-modal run src/modeldemo/training/train_modal.py
+uv run modal run ft/train_modal.py
 ```
-
-Run the hellaswag eval on a model checkpoint:
-
-```bash
-uv run src/modeldemo/training/hellaswag.py
-```
-
-or
-
-```bash
-modal run src/modeldemo/training/hellaswag.py
-```
-
-Serve a model checkpoint with Modal:
-
-```bash
-modal serve src/modeldemo/training/serve_modal.py
-```
-
-Check out the following docs for more information:
-
-- [uv](https://docs.astral.sh/uv/getting-started/features/#projects)
-- [modal](https://modal.com/docs)
-- [ruff](https://docs.astral.sh/ruff/tutorial/)

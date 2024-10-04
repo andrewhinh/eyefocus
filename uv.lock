@@ -297,6 +297,63 @@ wheels = [
 ]
 
 [[package]]
+name = "eyefocus"
+version = "0.2.0"
+source = { editable = "." }
+dependencies = [
+    { name = "huggingface-hub", extra = ["hf-transfer"] },
+    { name = "llama-cpp-python" },
+    { name = "mss" },
+    { name = "notify-py" },
+    { name = "pre-commit" },
+    { name = "timm" },
+    { name = "typer" },
+]
+
+[package.optional-dependencies]
+fe = [
+    { name = "python-fasthtml" },
+    { name = "simpleicons" },
+]
+ft = [
+    { name = "accelerate" },
+    { name = "bitsandbytes" },
+    { name = "datasets" },
+    { name = "modal" },
+    { name = "python-dotenv" },
+    { name = "sentencepiece" },
+    { name = "term-image" },
+    { name = "transformers" },
+    { name = "wandb" },
+]
+gpu = [
+    { name = "flash-attn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate", marker = "extra == 'ft'", specifier = ">=0.34.2" },
+    { name = "bitsandbytes", marker = "extra == 'ft'", specifier = ">=0.44.0" },
+    { name = "datasets", marker = "extra == 'ft'", specifier = ">=3.0.0" },
+    { name = "flash-attn", marker = "extra == 'gpu'", specifier = ">=2.6.3" },
+    { name = "huggingface-hub", extras = ["hf-transfer"], specifier = ">=0.24.7" },
+    { name = "llama-cpp-python", specifier = "==0.2.90" },
+    { name = "modal", marker = "extra == 'ft'", specifier = ">=0.64.128" },
+    { name = "mss", specifier = ">=9.0.2" },
+    { name = "notify-py", specifier = ">=0.3.43" },
+    { name = "pre-commit", specifier = ">=3.8.0" },
+    { name = "python-dotenv", marker = "extra == 'ft'", specifier = ">=1.0.1" },
+    { name = "python-fasthtml", marker = "extra == 'fe'", specifier = ">=0.6.9" },
+    { name = "sentencepiece", marker = "extra == 'ft'", specifier = ">=0.2.0" },
+    { name = "simpleicons", marker = "extra == 'fe'", specifier = ">=7.21.0" },
+    { name = "term-image", marker = "extra == 'ft'", specifier = ">=0.7.2" },
+    { name = "timm", specifier = ">=1.0.9" },
+    { name = "transformers", marker = "extra == 'ft'", specifier = ">=4.45.1" },
+    { name = "typer", specifier = ">=0.12.5" },
+    { name = "wandb", marker = "extra == 'ft'", specifier = ">=0.18.1" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.115.0"
 source = { registry = "https://pypi.org/simple" }
@@ -685,63 +742,6 @@ dependencies = [
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ce/1b/59bcae9f45105c84266a5453b9d3c58d2a9396030b0c6101ccbf47fb694a/modal-0.64.145-py3-none-any.whl", hash = "sha256:a1f0d230ae3a7efb0fdb60051b14a73f0a41bc75bba3353723d2f9f24eec0b08", size = 547950 },
-]
-
-[[package]]
-name = "modeldemo"
-version = "0.24.0"
-source = { editable = "." }
-dependencies = [
-    { name = "huggingface-hub", extra = ["hf-transfer"] },
-    { name = "llama-cpp-python" },
-    { name = "mss" },
-    { name = "notify-py" },
-    { name = "pre-commit" },
-    { name = "timm" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-fe = [
-    { name = "python-fasthtml" },
-    { name = "simpleicons" },
-]
-ft = [
-    { name = "accelerate" },
-    { name = "bitsandbytes" },
-    { name = "datasets" },
-    { name = "modal" },
-    { name = "python-dotenv" },
-    { name = "sentencepiece" },
-    { name = "term-image" },
-    { name = "transformers" },
-    { name = "wandb" },
-]
-gpu = [
-    { name = "flash-attn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "accelerate", marker = "extra == 'ft'", specifier = ">=0.34.2" },
-    { name = "bitsandbytes", marker = "extra == 'ft'", specifier = ">=0.44.0" },
-    { name = "datasets", marker = "extra == 'ft'", specifier = ">=3.0.0" },
-    { name = "flash-attn", marker = "extra == 'gpu'", specifier = ">=2.6.3" },
-    { name = "huggingface-hub", extras = ["hf-transfer"], specifier = ">=0.24.7" },
-    { name = "llama-cpp-python", specifier = "==0.2.90" },
-    { name = "modal", marker = "extra == 'ft'", specifier = ">=0.64.128" },
-    { name = "mss", specifier = ">=9.0.2" },
-    { name = "notify-py", specifier = ">=0.3.43" },
-    { name = "pre-commit", specifier = ">=3.8.0" },
-    { name = "python-dotenv", marker = "extra == 'ft'", specifier = ">=1.0.1" },
-    { name = "python-fasthtml", marker = "extra == 'fe'", specifier = ">=0.6.9" },
-    { name = "sentencepiece", marker = "extra == 'ft'", specifier = ">=0.2.0" },
-    { name = "simpleicons", marker = "extra == 'fe'", specifier = ">=7.21.0" },
-    { name = "term-image", marker = "extra == 'ft'", specifier = ">=0.7.2" },
-    { name = "timm", specifier = ">=1.0.9" },
-    { name = "transformers", marker = "extra == 'ft'", specifier = ">=4.45.1" },
-    { name = "typer", specifier = ">=0.12.5" },
-    { name = "wandb", marker = "extra == 'ft'", specifier = ">=0.18.1" },
 ]
 
 [[package]]

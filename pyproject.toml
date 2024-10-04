@@ -1,7 +1,7 @@
 [project]
-name = "modeldemo"
-version = "0.24.0"
-description = "TBD"
+name = "eyefocus"
+version = "0.2.0"
+description = "Stay focused!"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-modeldemo = "modeldemo:app"
+eyefocus = "eyefocus:app"
 
 [project.optional-dependencies]
 ft = [
@@ -81,4 +81,4 @@ mypy-init-return = true
 # ignore fn redefinitions with fasthtml
 "*/main.py" = ["F811"]
 # ignore shell usage
-"*/modeldemo/__init__.py" = ["S605", "S607"]
+"*/eyefocus/__init__.py" = ["S605", "S607"]

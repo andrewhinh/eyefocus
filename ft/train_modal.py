@@ -3,15 +3,14 @@ import subprocess
 import modal
 
 from ft.utils import (
-    CPU,
-    IMAGE,
     PREFIX_PATH,
-    TIMEOUT,
     TRAIN_SCRIPT_PATH,
-    VOLUME_CONFIG,
 )
+from utils import CPU, GPU_IMAGE, MINUTES, VOLUME_CONFIG
 
 # Modal
+TIMEOUT = 24 * 60 * MINUTES  # max
+
 GPU_TYPE = "H100"
 GPU_COUNT = 1
 GPU_SIZE = None  # options = None, "80GB"
@@ -40,7 +39,7 @@ def _exec_subprocess(cmd: list[str]):
 
 
 @app.function(
-    image=IMAGE,
+    image=GPU_IMAGE,
     secrets=[modal.Secret.from_dotenv(path=PREFIX_PATH)],
     gpu=GPU_CONFIG,
     timeout=TIMEOUT,

@@ -6,9 +6,9 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
+from utils import MINUTES, SECONDS
+
 data_dir = "self"
-SECONDS = 60
-MINUTES = 60
 num_imgs = 2 * MINUTES * SECONDS  # number of screenshots to capture
 file_format = "jpg"  # file format of the images
 interval = 12  #  interval between each screenshot in seconds

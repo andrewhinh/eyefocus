@@ -16,12 +16,14 @@ from transformers import AutoModel, AutoModelForCausalLM, AutoProcessor, BitsAnd
 from ft.utils import (
     ARTIFACT_PATH,
     CLASSES,
+)
+from utils import (
     CPU,
     DATA_VOLUME,
-    IMAGE,
+    GPU_IMAGE,
+    MINUTES,
     PREFIX_PATH,
     PRETRAINED_VOLUME,
-    TIMEOUT,
     VOLUME_CONFIG,
 )
 
@@ -195,6 +197,8 @@ if __name__ == "__main__":
 
 
 # Modal
+TIMEOUT = 24 * 60 * MINUTES  # max
+
 GPU_TYPE = "H100"
 GPU_COUNT = 3  # min for InternVL2-Llama3-76B
 GPU_SIZE = None  # options = None (40GB), "80GB"
@@ -207,7 +211,7 @@ app = modal.App(name=APP_NAME)
 
 
 @app.function(
-    image=IMAGE,
+    image=GPU_IMAGE,
     secrets=[modal.Secret.from_dotenv(path=PREFIX_PATH)],
     gpu=GPU_CONFIG,
     volumes=VOLUME_CONFIG,

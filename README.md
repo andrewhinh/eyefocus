@@ -67,13 +67,13 @@ uv run --with eyefocus --no-project -- eyefocus -vv
 Run the app:
 
 ```bash
-uv run frontend/app.py
+modal serve frontend/app.py
 ```
 
 Deploy on Modal:
 
 ```bash
-uv run modal run frontend/app.py
+modal deploy frontend/app.py
 ```
 
 ### Training

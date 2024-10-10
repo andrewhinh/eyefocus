@@ -16,7 +16,7 @@ Set up the environment:
 
 ```bash
 uv sync --all-extras --dev
-uv run pre-commit install
+uvx pre-commit install
 ```
 
 Optionally, set up Modal:

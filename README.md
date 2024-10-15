@@ -70,10 +70,16 @@ Run the app:
 modal serve frontend/app.py
 ```
 
-Deploy on Modal:
+Deploy on Modal in dev:
 
 ```bash
-modal deploy frontend/app.py
+modal deploy --env=dev frontend/app.py
+```
+
+Deploy on Modal in main:
+
+```bash
+modal deploy --env=main frontend/app.py
 ```
 
 ### Training

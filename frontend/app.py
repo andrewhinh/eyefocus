@@ -10,6 +10,7 @@ from utils import (
 )
 
 parent_path: Path = Path(__file__).parent
+in_prod = os.getenv("MODAL_ENVIRONMENT", "dev") == "main"
 
 # Modal
 FE_IMAGE = (
@@ -31,7 +32,7 @@ app = modal.App(APP_NAME)
 
 @app.function(
     image=FE_IMAGE,
-    secrets=[modal.Secret.from_dotenv(path=parent_path)],
+    secrets=[modal.Secret.from_dotenv(path=parent_path, filename=".env" if in_prod else ".env.dev")],
     timeout=FE_TIMEOUT,
     container_idle_timeout=FE_CONTAINER_IDLE_TIMEOUT,
     allow_concurrent_inputs=FE_ALLOW_CONCURRENT_INPUTS,

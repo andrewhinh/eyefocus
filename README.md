@@ -67,7 +67,7 @@ uv run --with eyefocus --no-project -- eyefocus -vv
 Run the app:
 
 ```bash
-modal serve frontend/app.py
+modal serve --env=dev frontend/app.py
 ```
 
 Deploy on Modal in dev:

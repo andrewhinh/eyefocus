@@ -22,7 +22,7 @@ FE_IMAGE = (
 )
 
 FE_TIMEOUT = 24 * 60 * MINUTES  # max
-FE_CONTAINER_IDLE_TIMEOUT = 20 * MINUTES  # max
+FE_SCALEDOWN_WINDOW = 20 * MINUTES  # max
 FE_ALLOW_CONCURRENT_INPUTS = 1000  # max
 
 
@@ -34,9 +34,9 @@ app = modal.App(APP_NAME)
     image=FE_IMAGE,
     secrets=[modal.Secret.from_dotenv(path=parent_path, filename=".env" if in_prod else ".env.dev")],
     timeout=FE_TIMEOUT,
-    container_idle_timeout=FE_CONTAINER_IDLE_TIMEOUT,
-    allow_concurrent_inputs=FE_ALLOW_CONCURRENT_INPUTS,
+    scaledown_window=FE_SCALEDOWN_WINDOW,
 )
+@modal.concurrent(max_inputs=FE_ALLOW_CONCURRENT_INPUTS)
 @modal.asgi_app()
 def modal_get():
     from fasthtml import common as fh
